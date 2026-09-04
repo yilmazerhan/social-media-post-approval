@@ -1,6 +1,6 @@
 # Kron Social Approval — Architecture
 
-**Status:** Baseline (v1.0) — approved for implementation
+**Status:** v1.1 — baseline reviewed, production stack selected and verified
 **Owner:** Platform Engineering
 **Last updated:** 2026-09-04
 **Applies to:** all code in this repository
@@ -31,25 +31,59 @@ the skeleton exists to prove the architecture compiles and runs, nothing more.
 
 ### 0.2 Technology decisions taken here
 
-| Layer | Choice | Why (short form; long form in §18) |
+The summary below states the shape of each layer. The binding, version-pinned register — every
+library, its exact version and why it beat the alternatives — is **Appendix A**. Nothing may be
+added to a build file that does not appear there.
+
+| Layer | Choice | Why (long form in §18 and Appendix A) |
 |---|---|---|
-| Backend | Java 21, Spring Boot 3.5.x | Only mainstream stack with first-party, production SAML 2.0 SP support; strong long-term maintenance story |
+| Backend | Java 21, Spring Boot 4.1.x | Only mainstream stack with first-party, production SAML 2.0 SP support; current supported generation |
 | Backend shape | Modular monolith | One deployable, hard module boundaries; can be split later without rewriting domain code |
-| Database | PostgreSQL 16 | Transactional workflow + JSONB + full-text search in one engine |
+| Database | PostgreSQL 16 | Transactional workflow + JSONB + full-text search + a durable work queue in one engine |
+| ORM | Spring Data JPA / Hibernate, native SQL for reporting | Aggregates through the ORM, analytics through SQL we would have written by hand anyway |
 | Migrations | Flyway | Versioned, reviewable SQL; no runtime schema generation |
-| Frontend | React 19 + TypeScript + Vite | Team familiarity, mature SPA tooling, strict typing across the API boundary |
+| Frontend | React 19 + TypeScript 5.9 + Vite | Team familiarity, mature SPA tooling, strict typing across the API boundary |
+| UI components | MUI (Material UI) v9 | One mature, accessible, enterprise-complete component set — including a data grid — instead of assembling one |
 | Data fetching | TanStack Query | Server-state cache with correct invalidation semantics |
 | Object storage | S3-compatible (MinIO on-prem / Azure Blob) | Media does not belong in the database; presigned transfer keeps large files off the app tier |
-| Cache / sessions | Redis 7 | Server-side session store, rate limiting, short-lived locks |
+| Cache / sessions | Redis 7 + Spring Session | Server-side session store, rate limiting, short-lived locks |
 | Email | SMTP relay + transactional outbox | Corporate relay is the only sanctioned egress; outbox guarantees no lost mail |
-| Jobs | Spring Scheduling + ShedLock + DB job tables | Cluster-safe, observable, no extra broker to operate on day one |
+| Queue | PostgreSQL work tables (`FOR UPDATE SKIP LOCKED`) | The volume does not justify a broker, and the work is already transactional with the data |
+| Jobs | Spring Scheduling + ShedLock | Cluster-safe, observable, no extra broker to operate |
 | AI review | Provider port, Anthropic Claude default | Advisory only; provider is swappable and can be switched off entirely |
 | Runtime | Docker images → Kubernetes (Helm) | Standard corporate target; `docker compose` for developers |
 
-**Assumption stated explicitly:** the customer did not specify a stack, so the
-above was chosen for us. The one decision that would be expensive to reverse is
-the backend language; the SAML requirement drove it. Everything else is behind an
-interface.
+**Assumption stated explicitly:** the customer did not specify a stack, so the above was chosen for
+us. The one decision that would be expensive to reverse is the backend language; the SAML
+requirement drove it. Everything else sits behind an interface.
+
+### 0.3 Review of the v1.0 baseline
+
+The baseline was re-examined before the stack was pinned. It stands: the module decomposition, the
+dual-authentication model, permission-based authorization, the outbox, the hash-chained audit trail
+and the lifecycle state machine all survived scrutiny, and none of them was rewritten. Six things
+changed, each for a stated technical reason.
+
+| # | Change | Reason |
+|---|---|---|
+| 1 | Spring Boot **4.1.1** rather than 3.5.x | 3.5 is at the end of its open-source support window; starting a multi-year build on it would mean a framework migration before the first release. Verified: the skeleton builds, boots and serves on 4.1.1 |
+| 2 | **MUI v9** named as the UI component framework | v1.0 left this open with a hand-rolled Tailwind/Radix direction. An internal approval tool is tables, forms and dialogs — buying a mature accessible set beats assembling one |
+| 3 | The "queue" made explicit: **PostgreSQL work tables**, not a broker | v1.0 said "no broker" but never named what replaces it. `SELECT … FOR UPDATE SKIP LOCKED` on the outbox and job tables is the mechanism, and it keeps enqueue in the same transaction as the state change |
+| 4 | Actuator moved to a **separate management port** (8081) | v1.0 had metrics on the public port needing credentials. A port the ingress does not publish is simpler and harder to get wrong |
+| 5 | Runtime base image is **Temurin JRE Alpine**, not distroless | The container health check needs a shell and `wget`; distroless would have forced a second mechanism for no security gain at this threat level |
+| 6 | **TypeScript 5.9**, not the new 7.0 native compiler | The toolchain around it — `openapi-typescript`, `typescript-eslint` — still peer-depends on 5.x. Revisit when they catch up; nothing in the codebase depends on the difference |
+
+Two constraints were discovered while pinning the stack, and both are recorded rather than worked
+around:
+
+- **OpenSAML is not on Maven Central.** It is published by the Shibboleth Consortium, so a build
+  machine needs that repository, normally through the corporate Nexus/Artifactory mirror. The
+  dependency therefore sits in a `saml` Maven profile that is active by default and can be switched
+  off with `-DskipSaml` for a developer or CI runner without access. Release builds must never use
+  that flag.
+- **Spring Boot 4 auto-configuration ships per technology.** `flyway-core` on the classpath is not
+  enough; `spring-boot-starter-flyway` is what wires it to the `DataSource`. The same applies to
+  other integrations, which is why every technology below is pulled through its starter.
 
 ---
 
@@ -185,6 +219,11 @@ frontend/src/
 └── styles/
 ```
 
+The component layer is **MUI (Material UI)**, themed once in `shared/theme`. Screens compose
+themed components and never reach for a raw colour or spacing value; the data grid, dialogs, forms
+and date pickers all come from the same accessible set, which is the point of buying one rather
+than assembling it.
+
 **Feature slices, not layer folders.** A feature owns its components, hooks,
 queries and types. Anything two features need moves to `shared/`. This keeps the
 blast radius of a change inside one directory.
@@ -197,7 +236,11 @@ Three kinds of state, three mechanisms, no overlap:
 |---|---|---|
 | Server state | TanStack Query | Post list, approval queue, notifications |
 | URL state | React Router search params | Filters, pagination, sort, active tab |
-| Local UI state | `useState` / Zustand store | Dialog open, editor draft buffer, sidebar collapsed |
+| Local UI state | `useState` | Dialog open, editor draft buffer, sidebar collapsed |
+| Form state | react-hook-form + Zod | Post editor, admin forms, decision dialogs |
+
+Form validation is written once as a Zod schema and reused for the TypeScript type and the runtime
+check. It is a convenience, not a control: the server validates every field again (§13.3).
 
 Filters live in the URL so a reviewer can paste "my overdue approvals" to a
 colleague and it opens the same view. Query keys are structured
@@ -528,8 +571,8 @@ password.
 
 ### 5.4 Sessions
 
-**Decision: server-side sessions, not JWT.** Spring Session backed by Redis; the
-browser holds an opaque cookie.
+**Decision: server-side sessions, not JWT.** Spring Session Data Redis; the browser holds an
+opaque cookie and the server holds the state.
 
 Rationale: this application must be able to kill a session *now* — on lockout, on
 admin disable, on password reset, on SAML Single Logout. A stateless JWT would
@@ -790,12 +833,17 @@ as account lockout.
 
 ### 9.1 Mechanism
 
-Spring's `@Scheduled` for timing, **ShedLock** (Postgres-backed) so that only one
-replica runs a given job, and durable work tables (`email_message`, `job_run`,
-`ai_review`) so that state survives a crash. No external broker in v1 — the work
-is low-volume and periodic, and adding RabbitMQ/Kafka would add an operational
-component we do not need yet. The scheduling port is abstracted, so a move to
-Quartz or a broker later is contained.
+Spring's `@Scheduled` for timing, **ShedLock** (Postgres-backed) so that only one replica runs a
+given job, and durable work tables so that state survives a crash.
+
+**The queue is PostgreSQL.** Work items — `email_message`, `ai_review`, attachment scans — are rows,
+claimed by workers with `SELECT … FOR UPDATE SKIP LOCKED`, which gives competing consumers without a
+broker. Two properties make this the right choice here rather than a compromise: enqueueing happens
+in the *same transaction* as the state change that caused it, which a broker would need the outbox
+pattern to approximate, and a stuck item is inspectable and re-runnable with a SQL query. At roughly
+200 posts a day the throughput argument for Kafka or RabbitMQ does not exist. If it ever does, the
+outbox is already the correct place to publish from, and the scheduling port keeps the move
+contained.
 
 ### 9.2 Rules every job obeys
 
@@ -955,8 +1003,8 @@ public interface ContentReviewProvider {
 }
 ```
 
-Default adapter: **Anthropic Claude API** (`claude-sonnet-5` for routine reviews,
-`claude-opus-5` where depth matters), with structured output via tool use so
+Default adapter: **Anthropic Claude API** through the official Java SDK (`claude-sonnet-5` for
+routine reviews, `claude-opus-5` where depth matters), with structured output via tool use so
 findings arrive as validated JSON rather than prose to be parsed. `NoopProvider`
 is wired when AI is disabled, so every code path above the port is identical
 whether or not AI is enabled. An on-premise/self-hosted adapter can be added
@@ -1008,7 +1056,7 @@ visible note. The workflow never blocks on AI availability.
 
 | Artefact | Contents |
 |---|---|
-| `ksa-backend` image | Spring Boot fat jar on a distroless JRE 21 base, non-root UID |
+| `ksa-backend` image | Spring Boot fat jar on Temurin JRE 21 (Alpine), non-root UID, container health check |
 | `ksa-frontend` image | Vite build output served by nginx-unprivileged with security headers |
 | Helm chart | Deployments, Services, Ingress, HPA, ConfigMaps, Secrets, CronJob hooks, NetworkPolicies |
 
@@ -1076,8 +1124,13 @@ compatible, the previous image runs against the new schema.
 
 ### 12.6 Observability
 
-- **Health:** `/actuator/health/liveness` and `/readiness`, with readiness checking
-  DB, Redis and object storage. Kubernetes probes are wired to these.
+- **Management port:** actuator is bound to its own port (8081 by default) which the ingress does
+  not publish, so probes and metric scrapes stay cluster-internal without credentials on every
+  request. Only `/api/*` is reachable from outside.
+- **Health:** `/actuator/health/liveness` and `/readiness`, with readiness checking DB, Redis and
+  object storage. Mail is deliberately *excluded* from readiness: notifications go through the
+  outbox, so an unreachable SMTP relay delays email but must never take a healthy replica out of
+  rotation. Kubernetes probes are wired to these.
 - **Metrics:** Micrometer → Prometheus. Beyond JVM/HTTP basics, the business
   metrics that matter: pending approvals by age, SLA breaches, email queue depth
   and failures, job durations and outcomes, AI latency/cost, upload failures.
@@ -1691,6 +1744,12 @@ content-quality win, not only an accessibility one).
 | 14 | Content frozen while `IN_REVIEW` | Allow edits during review | An approval must bind to exact bytes, or the audit trail means nothing |
 | 15 | Approval invalidated by post-approval edits | Keep approval | Same reason as #14 |
 | 16 | ShedLock + DB tables, no broker | Kafka/RabbitMQ | Volume does not justify the operational cost; port allows a later move |
+| 17 | Spring Boot 4.1 | Spring Boot 3.5 | 3.5 is at the end of its OSS support window; starting here avoids a framework migration before release |
+| 18 | MUI v9 as the component set | shadcn/ui + Radix + Tailwind, Ant Design, hand-rolled | An approval tool is tables, forms and dialogs; a mature accessible set with a data grid beats assembling one from four packages |
+| 19 | PostgreSQL as the queue (`SKIP LOCKED`) | Kafka, RabbitMQ, Redis streams | Enqueue stays in the business transaction; a stuck item is a SQL query away; no broker to operate |
+| 20 | TypeScript 5.9 | TypeScript 7.0 (native compiler) | Codegen and lint toolchains still peer-depend on 5.x; the language surface we use is identical |
+| 21 | Actuator on a separate port | Same port with authentication | A port the ingress does not publish cannot be reached by mistake |
+| 22 | SAML dependency in a default-active Maven profile | Unconditional dependency | OpenSAML is not on Maven Central; the profile lets a runner without the Shibboleth mirror still build, while release builds always include it |
 
 ---
 
@@ -1700,15 +1759,21 @@ content-quality win, not only an accessibility one).
 
 ```
 .
-├── ARCHITECTURE.md              ← this document
+├── ARCHITECTURE.md              ← this document (Appendix A is the stack register)
 ├── README.md
-├── docker-compose.yml           ← local infrastructure + app
+├── docker-compose.yml           ← local infrastructure; app images behind the "app" profile
 ├── .env.example
 ├── backend/
-│   ├── pom.xml
+│   ├── pom.xml                  ← version-pinned stack, SAML behind the `saml` profile
+│   ├── Dockerfile               ← multi-stage build → Temurin JRE 21, non-root
 │   └── src/main/java/com/kron/socialapproval/
 │       ├── KronSocialApprovalApplication.java
-│       ├── platform/            config, error model, health, jobs, security wiring
+│       ├── platform/            config, error model, security wiring, jobs, health
+│       │   ├── config/          KsaProperties (validated at startup)
+│       │   ├── error/           ApiException, GlobalExceptionHandler, CorrelationIdFilter
+│       │   ├── security/        SecurityConfig, PasswordEncoderConfig
+│       │   ├── jobs/            SchedulingConfig (ShedLock)
+│       │   └── web/             SystemController
 │       ├── identity/            api/ + internal/
 │       ├── access/
 │       ├── content/
@@ -1720,13 +1785,20 @@ content-quality win, not only an accessibility one).
 │       ├── media/
 │       ├── reporting/
 │       └── admin/
-│   └── src/main/resources/
-│       ├── application.yml, application-{local,dev,staging,prod}.yml
-│       ├── db/migration/        Flyway
-│       └── templates/mail/      Thymeleaf
+│   ├── src/main/resources/
+│   │   ├── application.yml, application-{local,prod}.yml
+│   │   ├── logback-spring.xml   ← readable locally, JSON everywhere else
+│   │   ├── db/migration/        Flyway
+│   │   └── templates/mail/      Thymeleaf
+│   └── src/test/java/.../architecture/   ArchUnit module boundary rules
 ├── frontend/
-│   ├── package.json, vite.config.ts, tsconfig.json
-│   └── src/                     (§2.1)
+│   ├── package.json, vite.config.ts, tsconfig.json, eslint.config.js
+│   ├── playwright.config.ts, Dockerfile, nginx.conf
+│   └── src/
+│       ├── app/                 bootstrap: providers, router, layout
+│       ├── features/            one folder per bounded context slice
+│       ├── shared/              api client, theme, components, hooks, auth, i18n
+│       └── test/                vitest setup
 └── deploy/
     ├── helm/
     └── k8s/
@@ -1736,7 +1808,7 @@ content-quality win, not only an accessibility one).
 
 | Phase | Contents |
 |---|---|
-| 0 (this commit) | Skeleton: build, module packages, config, health, Flyway baseline, compose stack |
+| 0 (done) | Skeleton: version-pinned stack, module packages with enforced boundaries, validated configuration, error model, security posture, Flyway baseline, job infrastructure, health and OpenAPI endpoints, container images, compose stack. Verified: backend builds and boots against PostgreSQL and Redis, migrations apply, frontend builds, lints and tests |
 | 1 | Identity + access: `app_user`, `identity_link`, local auth, SAML, sessions, RBAC, `/me` |
 | 2 | Content: drafts, versions, attachments, storage, validation |
 | 3 | Workflow: submit, assign, decide, state machine, comments |
@@ -1821,3 +1893,151 @@ Jobs, testing and AI
 - ArchUnit — https://www.archunit.org/
 - Claude API overview — https://docs.claude.com/en/api/overview
 - Claude tool use / structured output — https://docs.claude.com/en/docs/agents-and-tools/tool-use/overview
+
+---
+
+## Appendix A — Production technology stack
+
+This is the binding register. Every version here is pinned in `backend/pom.xml` or
+`frontend/package.json`, and every entry has been through a build in this repository. A dependency
+that is not listed here does not belong in a build file; adding one means adding a row and a reason.
+
+The right-hand column answers one question only: *why this and not the obvious alternative.*
+
+### A.1 Language and runtime
+
+| Concern | Selected | Version | Why this one |
+|---|---|---|---|
+| Backend language | Java | 21 (LTS) | The SAML requirement decided it: Java has the only first-party, actively maintained SAML 2.0 service-provider implementation in a mainstream web framework. 21 is the current LTS with virtual threads and records |
+| Frontend language | TypeScript | 5.9.3 | Types across the API boundary are what stop a governance product from shipping a silent field rename. 5.9 rather than the new native 7.0 compiler because `openapi-typescript` and `typescript-eslint` still require 5.x |
+| Node (build only) | Node.js | 22 LTS | Build and test toolchain only — no Node runs in production |
+
+### A.2 Backend
+
+| Concern | Selected | Version | Why this one |
+|---|---|---|---|
+| Backend framework | Spring Boot | 4.1.1 | Mature, boring, and the only ecosystem where authentication, SAML, sessions, scheduling, persistence and observability are all first-party and version-aligned. 4.1 rather than 3.5 because 3.5 is at the end of its OSS support window |
+| Web layer | Spring MVC (Tomcat, servlet) | Boot-managed | Blocking I/O is the right model for a database-bound CRUD-and-workflow application; WebFlux would add reactive debugging cost for no throughput we need |
+| API documentation | springdoc-openapi | 3.1.0 | Generates OpenAPI 3.1 from the controllers, which the frontend then generates its client from. Disabled entirely in production |
+| DTO mapping | MapStruct | 1.6.3 | Compile-time generated mappers: no reflection cost, and a field mismatch is a build error rather than a null at runtime |
+| Object mapping style | Java records + explicit accessors | — | Lombok deliberately not used: it is a compiler plugin whose failures are hard to read, and records cover most of what it was for |
+
+### A.3 Data
+
+| Concern | Selected | Version | Why this one |
+|---|---|---|---|
+| Database | PostgreSQL | 16 | One engine covers transactional workflow, JSONB payloads, full-text search, partitioning for audit growth and a durable work queue. Adding a second datastore would be four operational problems for one |
+| ORM | Spring Data JPA / Hibernate | Boot-managed (Hibernate 7) | Aggregate loads and writes through the ORM; reporting and search through native SQL. `open-in-view` is off and `ddl-auto` is `validate` — the ORM never touches the schema |
+| Migrations | Flyway (via `spring-boot-starter-flyway`) | 12.4.0 | Plain versioned SQL a DBA can review, forward-only, expand/contract. Liquibase's XML abstraction buys portability we do not need on a single engine |
+| Connection pool | HikariCP | Boot-managed | Default, fast, unremarkable — the correct qualities in a connection pool |
+| Redis client | Lettuce (Spring Data Redis) | Boot-managed | Netty-based, thread-safe, the Spring default |
+
+### A.4 Authentication, authorization and cryptography
+
+| Concern | Selected | Version | Why this one |
+|---|---|---|---|
+| Authentication framework | Spring Security | 7.x (Boot-managed) | The framework the rest of the stack integrates with; filter chains, method security and CSRF all come from one place |
+| SAML 2.0 | `spring-security-saml2-service-provider` + OpenSAML | Boot-managed / OpenSAML 5 | First-party, maintained, and validated against Entra ID by a large user base. Rolling our own XML signature validation is how SAML CVEs are born. Note: OpenSAML is published by the Shibboleth Consortium, not Maven Central (see §0.3) |
+| Password hashing | Spring Security Crypto `Argon2PasswordEncoder` + Bouncy Castle | BC 1.85.2 | Argon2id is OWASP's first choice; memory-hard, so a stolen hash database resists GPU attack. Wrapped in `DelegatingPasswordEncoder` so parameters can be raised later without a reset |
+| Session mechanism | Spring Session Data Redis + opaque `HttpOnly` cookie | Boot-managed | Revocation must be immediate — lockout, admin disable, SAML single logout. A JWT would need either a very short TTL with refresh plumbing or a denylist, which is server-side session state in disguise |
+| Authorization | Spring Security method security + database-backed permissions | — | Roles are rows, permissions are the authorities. A new role is an INSERT, not a deployment |
+| Rate limiting | Bucket4j on Redis | phase 1 | Token bucket with a shared Redis backend, so limits hold across replicas. Not yet in the build — it arrives with the login endpoint it protects |
+| HTML sanitisation | OWASP Java HTML Sanitizer | 20260313.1 | Allow-list policy applied server-side before storage; client-side sanitisation is cosmetic |
+| Content type detection | Apache Tika | 4.0.0 | Magic-byte sniffing, because a client-supplied `Content-Type` is an assertion, not evidence |
+
+### A.5 Storage, email and jobs
+
+| Concern | Selected | Version | Why this one |
+|---|---|---|---|
+| Object storage | S3 API — MinIO on-premises, Azure Blob as an alternative adapter | — | Presigned direct upload keeps 500 MB videos off the application tier; the same API works on-prem and in cloud |
+| Storage SDK | AWS SDK for Java v2 | 2.54.13 | Non-blocking, actively maintained, works against any S3-compatible endpoint. Behind a `BlobStorage` port so the adapter is replaceable |
+| Antivirus | ClamAV (`clamav-client`) | phase 2 | The standard on-premise scanner; runs as its own container and is reached over TCP |
+| Email transport | Spring Mail (Jakarta Mail) over the corporate SMTP relay | Boot-managed | The relay is the only sanctioned egress path; SPF/DKIM/DMARC are already solved there |
+| Email templating | Thymeleaf | Boot-managed | Server-side templating with automatic escaping, HTML plus a plain-text alternative, localised per recipient |
+| Email abstraction | Transactional outbox table + `EmailSender` port | — | Business code inserts a row; a worker sends it. No mail for a rolled-back transaction, no lost mail for a relay outage, and every message is inspectable and re-sendable |
+| Scheduling | Spring `@Scheduled` + ShedLock | ShedLock 7.10.0 | Every replica holds the same schedule; ShedLock ensures one execution, using the database clock so a skewed replica cannot break exclusion. Quartz would bring a cluster and a scheduler database for features we do not use |
+| Queue | PostgreSQL work tables with `FOR UPDATE SKIP LOCKED` | — | Enqueue happens inside the business transaction, and a stuck item is one SQL query away. A broker becomes worth its operational cost at a volume this application does not have |
+
+### A.6 Validation, logging and monitoring
+
+| Concern | Selected | Version | Why this one |
+|---|---|---|---|
+| Backend validation | Jakarta Bean Validation / Hibernate Validator | Boot-managed | Declarative constraints on DTOs and configuration properties; invalid configuration fails the boot rather than the 3 a.m. request |
+| Frontend validation | Zod + react-hook-form | 4.5.4 / 7.87.0 | One schema yields both the TypeScript type and the runtime check. Convenience only — the server revalidates everything |
+| Logging API / implementation | SLF4J + Logback | Boot-managed | The Spring Boot default; no reason to deviate |
+| Log format | logstash-logback-encoder | 9.0 | Structured JSON with correlation id, user id and trace id in every line, so the aggregator can actually query them. Human-readable pattern locally |
+| Metrics | Micrometer + Prometheus registry | Boot-managed | Vendor-neutral instrumentation; business metrics (pending approvals by age, SLA breaches, email queue depth) matter more here than JVM counters |
+| Tracing | Micrometer Tracing → OpenTelemetry | Boot-managed | W3C `traceparent` propagated from the ingress; exporter target is a deployment decision, not a code one |
+| Dashboards and alerting | Grafana + Alertmanager | deployment | Standard companions to Prometheus; dashboards ship as chart assets |
+
+### A.7 Frontend
+
+| Concern | Selected | Version | Why this one |
+|---|---|---|---|
+| Framework | React | 19.2.8 | Largest hiring pool and component ecosystem; the approval UI is ordinary CRUD, so novelty has no upside |
+| Build tool | Vite | 8.2.2 | Fast dev server, ES-module builds, first-class TypeScript. No SSR tier because the app is internal and behind SSO |
+| UI components | MUI (Material UI) + MUI X Data Grid (MIT tier) | 9.4.0 / 9.13.0 | A complete, accessible, themeable enterprise set including the data grid this application lives on. Note: the Pro/Premium grid tiers are commercially licensed — v1 stays on the MIT community grid, and moving up is a purchasing decision, not a technical one |
+| Styling engine | Emotion (MUI's engine) | 11.14.x | Comes with MUI; theme tokens rather than ad-hoc CSS |
+| Server state | TanStack Query | 5.102.8 | Caching, invalidation and request de-duplication done properly. Redux would be state management we do not have — almost all state here is server state |
+| Routing | React Router | 7.18.3 | Filters and pagination live in the URL, so a view can be shared as a link |
+| API client | Generated from OpenAPI (`openapi-typescript`) | 7.13.0 | A backend field rename must break the frontend build, not production |
+
+### A.8 Testing
+
+| Concern | Selected | Version | Why this one |
+|---|---|---|---|
+| Backend unit / slice | JUnit 5, AssertJ, Mockito (`spring-boot-starter-test`) | Boot-managed | The standard bundle; slice tests keep controller and persistence tests fast |
+| Security tests | `spring-security-test` | Boot-managed | Lets the permission matrix — every endpoint against every role — be asserted, which is the suite that stops a governance product regressing |
+| Integration | Testcontainers | 2.0.5 | Tests run against real PostgreSQL, Redis, MinIO and an SMTP sink. An in-memory database would validate a schema we do not deploy |
+| Architecture | ArchUnit | 1.5.0 | Module boundaries fail the build instead of eroding quietly |
+| Frontend unit | Vitest + Testing Library | 5.0.0 / 16.3.3 | Shares the Vite pipeline, so tests and the app resolve modules identically |
+| API mocking | MSW | 2.15.0 | Intercepts at the network layer, so components are tested against the real contract shape |
+| End-to-end | Playwright | 1.63.0 | Cross-browser, reliable waiting, trace viewer. Covers both login paths, draft → approve, upload and digest links |
+| Load | k6 | phase 7 | Scriptable in JavaScript, CI-friendly |
+
+### A.9 Delivery and environments
+
+| Concern | Selected | Version | Why this one |
+|---|---|---|---|
+| Containerisation | Docker, multi-stage builds | — | Backend: Temurin JRE 21 Alpine, non-root, container health check. Frontend: `nginx-unprivileged` serving static assets |
+| Orchestration | Kubernetes + Helm | — | The corporate target; the chart pins image digests and runs migrations as a pre-deploy hook |
+| Local development | `docker compose` — PostgreSQL, Redis, MinIO, Mailpit, ClamAV | — | Every backing service on the laptop, nothing leaving it. Mailpit catches all outgoing mail so no test message can reach a real inbox |
+| Local run | `mvn spring-boot:run` + `vite dev` with an API proxy | — | Same-origin behaviour locally as in production, so cookies and CSRF behave identically |
+| CI | Build, unit, integration, ArchUnit, lint, SAST, dependency and image scanning | — | A CRITICAL vulnerability blocks a release; SBOM generated per release |
+
+### A.10 Deliberately not adopted
+
+| Not used | Why |
+|---|---|
+| Kafka / RabbitMQ | No throughput or fan-out requirement; PostgreSQL work tables keep enqueue transactional (§9.1) |
+| Keycloak or another IdP in front | Entra ID is the corporate IdP; a second identity hop would add an outage surface and another user store |
+| Elasticsearch / OpenSearch | PostgreSQL full-text search covers v1; the `PostSearchPort` exists for the day it does not |
+| JWT access tokens | Cannot be revoked at the moment revocation is required (§5.4) |
+| Redux / MobX | Almost all state is server state, which TanStack Query already models |
+| Tailwind + shadcn/ui | Four packages and a maintained component copy where one mature library does the job |
+| Lombok | A compiler plugin whose failure modes are opaque; records and IDE generation cover it |
+| GraphQL | A single first-party client with well-known screens; REST plus OpenAPI codegen is less machinery |
+| MongoDB or a second datastore | The domain is relational and transactional end to end |
+
+### A.11 Verification performed
+
+Every claim above was checked against a running system rather than assumed:
+
+| Check | Result |
+|---|---|
+| `mvn test` (backend) | Passes, including the ArchUnit module boundary suite |
+| Application boot | Starts against PostgreSQL 16 and Redis 7 |
+| Flyway | `V1__baseline` and `V2__platform_jobs` applied; `app_setting`, `job_run` and `shedlock` created |
+| `GET /api/v1/system/health` | 200, with CSP, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy` and `X-Correlation-Id` present |
+| `GET /api/v1/posts` (no session) | 401, not a redirect to a login page |
+| Unknown path | 404 as `application/problem+json` with a stable `code` and the correlation id |
+| Actuator | Liveness and readiness 200 on port 8081; nothing on 8080 |
+| OpenAPI | Document served and lists the system endpoints |
+| `npm run build` / `test` / `lint` | All pass; production bundle emitted |
+| SPA → API through the dev proxy | `GET /api/v1/system/auth-methods` returns the configured sign-in methods |
+
+One thing could **not** be verified in the build environment and is called out rather than glossed
+over: the container images were not built, because no Docker daemon was available. The Dockerfiles
+and the compose file are syntactically validated (`docker compose config`) but unexercised, and
+`-DskipSaml` was required for every build here since the sandbox's network policy blocks the
+Shibboleth repository. Both are environment limitations, not design gaps.

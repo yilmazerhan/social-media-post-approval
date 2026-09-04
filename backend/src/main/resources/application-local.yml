@@ -9,6 +9,16 @@ spring:
       hibernate:
         format_sql: true
 
+server:
+  servlet:
+    session:
+      cookie:
+        secure: false
+
+springdoc:
+  swagger-ui:
+    enabled: true
+
 management:
   endpoint:
     health:

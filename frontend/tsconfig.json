@@ -14,7 +14,7 @@
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
     "skipLibCheck": true,
-    "types": ["vite/client"],
+    "types": ["vite/client", "vitest/globals"],
     "noEmit": true,
     "baseUrl": "src",
     "paths": {
@@ -23,5 +23,5 @@
       "@shared/*": ["shared/*"]
     }
   },
-  "include": ["src"]
+  "include": ["src", "vite.config.ts", "playwright.config.ts"]
 }

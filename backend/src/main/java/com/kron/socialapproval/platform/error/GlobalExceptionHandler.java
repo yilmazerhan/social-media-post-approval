@@ -9,9 +9,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
+import org.springframework.web.ErrorResponseException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 /**
  * Translates exceptions into RFC 9457 {@code application/problem+json} responses.
@@ -41,6 +43,22 @@ public class GlobalExceptionHandler {
                 .toList();
         problem.setProperty("errors", errors);
         return problem;
+    }
+
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ProblemDetail handleNotFound(NoResourceFoundException ex, HttpServletRequest request) {
+        return problem(HttpStatus.NOT_FOUND, "NOT_FOUND", "No such resource.", request);
+    }
+
+    /**
+     * Spring MVC already models its own failures (unsupported method, unreadable body, missing
+     * parameter) as {@link ErrorResponseException} with the right status. Preserve that status
+     * instead of letting the catch-all turn a client mistake into a 500.
+     */
+    @ExceptionHandler(ErrorResponseException.class)
+    public ProblemDetail handleErrorResponse(ErrorResponseException ex, HttpServletRequest request) {
+        HttpStatus status = HttpStatus.valueOf(ex.getStatusCode().value());
+        return problem(status, status.name(), status.getReasonPhrase(), request);
     }
 
     @ExceptionHandler(Exception.class)

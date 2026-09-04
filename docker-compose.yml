@@ -5,7 +5,10 @@
 #   cd backend  && mvn spring-boot:run
 #   cd frontend && npm run dev
 #
-# Application images are added to this file once the phase 1 Dockerfiles are wired into CI.
+# The application images themselves live behind the "app" profile, so the default `up` gives you
+# infrastructure to develop against:
+#   docker compose up -d                  # backing services only
+#   docker compose --profile app up -d    # everything, built from the Dockerfiles
 
 services:
   postgres:
@@ -96,6 +99,37 @@ services:
       timeout: 10s
       retries: 3
       start_period: 120s
+
+  backend:
+    profiles: ["app"]
+    build:
+      context: ./backend
+    container_name: ksa-backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: local
+      KSA_DB_URL: jdbc:postgresql://postgres:5432/ksa
+      KSA_REDIS_HOST: redis
+      KSA_MAIL_HOST: mailpit
+      KSA_STORAGE_ENDPOINT: http://minio:9000
+      KSA_COOKIE_SECURE: "false"
+    ports:
+      - "8080:8080"
+      - "8081:8081"
+
+  frontend:
+    profiles: ["app"]
+    build:
+      context: ./frontend
+    container_name: ksa-frontend
+    depends_on:
+      - backend
+    ports:
+      - "5173:8080"
 
 volumes:
   postgres-data:
