@@ -1,0 +1,23 @@
+# Production expects every value from the environment; nothing sensitive is defaulted here.
+spring:
+  jpa:
+    properties:
+      hibernate:
+        format_sql: false
+
+management:
+  endpoint:
+    health:
+      show-details: never
+
+logging:
+  level:
+    root: INFO
+    com.kron.socialapproval: INFO
+
+ksa:
+  auth:
+    local:
+      enabled: ${KSA_AUTH_LOCAL_ENABLED:true}
+    saml:
+      enabled: ${KSA_AUTH_SAML_ENABLED:true}

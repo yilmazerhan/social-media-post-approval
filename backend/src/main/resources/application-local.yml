@@ -1,0 +1,29 @@
+# Developer laptop profile: everything runs in docker compose, nothing leaves the machine.
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/ksa
+    username: ksa
+    password: ksa
+  jpa:
+    properties:
+      hibernate:
+        format_sql: true
+
+management:
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    com.kron.socialapproval: DEBUG
+
+ksa:
+  auth:
+    local:
+      enabled: true
+    saml:
+      enabled: false
+  ai:
+    enabled: false
+    provider: noop
