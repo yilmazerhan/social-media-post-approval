@@ -380,6 +380,12 @@ model Post {
   approvedVersionId   String?                  @db.Uuid
   draftTitle          String?
   draftContentJson    Json?
+  // Ordered array of Attachment.id (string uuids). Attachments have no FK
+  // to a draft (DATABASE.md's Attachment/PostVersionAttachment tables only
+  // bind a version, never a draft), so this is the one place the editor's
+  // in-progress media list survives a reload/session change before
+  // PostVersionAttachment rows are written at submission. See ARCHITECTURE.md §6.
+  draftAttachmentIds  Json?
   draftUpdatedAt      DateTime?                @db.Timestamptz(6)
   approvalRouteId     String?                  @db.Uuid
   requestedApproverId String?                  @db.Uuid

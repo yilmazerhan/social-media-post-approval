@@ -44,8 +44,12 @@ export const PATCH = protectedHandler<
       }
     },
   },
-  async ({ params, input }) => {
-    const result = await updateDraft({ postId: params.id, input });
+  async ({ params, input, resource }) => {
+    const result = await updateDraft({
+      postId: params.id,
+      creatorId: resource.creatorId,
+      input,
+    });
     return { data: result };
   },
 );

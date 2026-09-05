@@ -7,9 +7,17 @@
 import type { Priority, Prisma } from "@/generated/prisma/client";
 import { config } from "@/server/config";
 import { prisma } from "@/server/db";
-import { WorkflowError, NotFoundError } from "@/server/http/handler";
+import {
+  WorkflowError,
+  NotFoundError,
+  NotReadyError,
+} from "@/server/http/handler";
 import { resolveApprovalRoute, resolveAssigneeName } from "@/modules/approvals";
 import { writeAudit } from "@/modules/audit";
+import {
+  listAttachmentDtos,
+  validateAttachmentOwnership,
+} from "@/modules/attachments";
 import {
   EMPTY_DOCUMENT,
   tiptapDocumentSchema,
@@ -36,6 +44,11 @@ function parseDraftContent(value: unknown) {
   return parsed.success ? parsed.data : EMPTY_DOCUMENT;
 }
 
+function parseDraftAttachmentIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((entry): entry is string => typeof entry === "string");
+}
+
 export async function createDraft(params: {
   creatorId: string;
   creatorEmail: string;
@@ -50,6 +63,7 @@ export async function createDraft(params: {
         creatorId: params.creatorId,
         draftTitle: title,
         draftContentJson: toJsonInput(EMPTY_DOCUMENT),
+        draftAttachmentIds: [],
         draftUpdatedAt: new Date(),
       },
       select: { id: true, reference: true },
@@ -97,6 +111,9 @@ export async function getPostForEdit(
 
   const isOwner = post.creatorId === userId;
   const isEditableState = EDITABLE_STATUSES.has(post.status);
+  const attachments = await listAttachmentDtos(
+    parseDraftAttachmentIds(post.draftAttachmentIds),
+  );
 
   return {
     id: post.id,
@@ -107,6 +124,7 @@ export async function getPostForEdit(
     departmentId: post.departmentId,
     draftTitle: post.draftTitle,
     draftContentJson: parseDraftContent(post.draftContentJson),
+    attachments,
     draftUpdatedAt: post.draftUpdatedAt?.toISOString() ?? null,
     requestedApproverId: post.requestedApproverId,
     requestedGroupId: post.requestedGroupId,
@@ -128,10 +146,27 @@ export async function getPostForEdit(
 /** Full update: metadata + draft content, guarded by `lockVersion` — API.md's PATCH `/posts/:id`. */
 export async function updateDraft(params: {
   postId: string;
+  creatorId: string;
   input: UpdatePostInput;
 }): Promise<{ lockVersion: number; draftUpdatedAt: string }> {
-  const { postId, input } = params;
+  const { postId, creatorId, input } = params;
   const now = new Date();
+
+  if (input.attachmentIds !== undefined) {
+    const ownershipOk = await validateAttachmentOwnership({
+      ids: input.attachmentIds,
+      ownerId: creatorId,
+    });
+    if (!ownershipOk) {
+      throw new NotReadyError("Some attachments couldn't be saved.", [
+        {
+          field: "attachmentIds",
+          message:
+            "One or more attachments are invalid or belong to someone else.",
+        },
+      ]);
+    }
+  }
 
   const data: Prisma.PostUncheckedUpdateManyInput = {
     draftUpdatedAt: now,
@@ -151,6 +186,9 @@ export async function updateDraft(params: {
   }
   if (input.requestedGroupId !== undefined) {
     data.requestedGroupId = input.requestedGroupId;
+  }
+  if (input.attachmentIds !== undefined) {
+    data.draftAttachmentIds = input.attachmentIds;
   }
 
   const result = await prisma.post.updateMany({
@@ -206,6 +244,7 @@ export async function autosaveDraft(params: {
 export async function computeReadinessForPost(post: {
   draftTitle: string | null;
   draftContentJson: unknown;
+  draftAttachmentIds: unknown;
   departmentId: string | null;
   priority: Priority;
   creatorId: string;
@@ -215,6 +254,11 @@ export async function computeReadinessForPost(post: {
   const draftContent = parseDraftContent(post.draftContentJson);
   const plainText = extractPlainText(draftContent);
   const characterCount = countCharacters(plainText);
+  const attachmentIds = parseDraftAttachmentIds(post.draftAttachmentIds);
+  const attachmentsValid = await validateAttachmentOwnership({
+    ids: attachmentIds,
+    ownerId: post.creatorId,
+  });
 
   const route = await resolveApprovalRoute({
     departmentId: post.departmentId,
@@ -237,12 +281,12 @@ export async function computeReadinessForPost(post: {
         characterCount > 0 && characterCount <= config.POST_MAX_CHARACTERS,
     },
     {
-      // Real attachment-state checking arrives with the upload pipeline
-      // (Phase 9); with none yet, "every attachment is valid" is
-      // vacuously true rather than faked.
       key: "attachments",
-      label: "Attachments valid",
-      passed: true,
+      label:
+        attachmentIds.length > 0
+          ? `${attachmentIds.length} attachment${attachmentIds.length === 1 ? "" : "s"} valid`
+          : "Attachments valid",
+      passed: attachmentsValid,
     },
     {
       key: "department",

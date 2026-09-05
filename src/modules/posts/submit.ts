@@ -24,6 +24,7 @@ import {
   resolveAssigneeName,
 } from "@/modules/approvals";
 import { writeAudit } from "@/modules/audit";
+import { attachToVersion } from "@/modules/attachments";
 import {
   tiptapDocumentSchema,
   EMPTY_DOCUMENT,
@@ -125,6 +126,16 @@ export async function submitPost(params: {
         supersedesVersionId: previousVersion?.id,
       },
       select: { id: true },
+    });
+
+    const attachmentIds = Array.isArray(post.draftAttachmentIds)
+      ? post.draftAttachmentIds.filter(
+          (id): id is string => typeof id === "string",
+        )
+      : [];
+    await attachToVersion(tx, {
+      postVersionId: version.id,
+      attachmentIds,
     });
 
     await tx.post.update({

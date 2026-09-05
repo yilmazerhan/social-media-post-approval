@@ -51,6 +51,19 @@ export class NotReadyError extends Error {
   }
 }
 
+/** An uploaded file rejected by the pipeline (ARCHITECTURE.md §6) — maps to API.md's 413/415/422 upload codes. */
+export class FileRejectedError extends Error {
+  constructor(
+    message: string,
+    public readonly code:
+      | "FILE_TOO_LARGE"
+      | "FILE_TYPE_REJECTED"
+      | "UPLOAD_FAILED" = "FILE_TYPE_REJECTED",
+  ) {
+    super(message);
+  }
+}
+
 export interface RouteContext {
   params: Promise<Record<string, string>>;
 }
@@ -66,10 +79,12 @@ export interface ExecuteContext<TInput, TResource> {
 }
 
 export interface ExecuteResult {
-  data: unknown;
+  data?: unknown;
   status?: number;
   meta?: Record<string, unknown>;
   headers?: HeadersInit;
+  /** Bypasses the JSON envelope entirely — a streamed file, or an empty 204. Takes precedence over `data`. */
+  raw?: NextResponse;
 }
 
 export interface LoadResourceContext<TInput> {
@@ -193,6 +208,7 @@ export function protectedHandler<TInput = undefined, TResource = undefined>(
         input,
         resource,
       });
+      if (result.raw) return result.raw;
       return jsonSuccess(result.data, {
         status: result.status,
         meta: result.meta,
@@ -214,6 +230,15 @@ export function protectedHandler<TInput = undefined, TResource = undefined>(
       }
       if (err instanceof NotReadyError) {
         return jsonError(422, "VALIDATION_FAILED", err.message, err.details);
+      }
+      if (err instanceof FileRejectedError) {
+        const status =
+          err.code === "FILE_TOO_LARGE"
+            ? 413
+            : err.code === "FILE_TYPE_REJECTED"
+              ? 415
+              : 422;
+        return jsonError(status, err.code, err.message);
       }
       logger.error({ err }, "Unhandled error in protected handler");
       return jsonError(500, "INTERNAL_ERROR", "Something went wrong.");

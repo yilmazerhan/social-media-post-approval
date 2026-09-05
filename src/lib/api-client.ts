@@ -103,3 +103,75 @@ export async function deleteJson<T>(
   });
   return handleResponse<T>(response);
 }
+
+export interface UploadHandle<T> {
+  promise: Promise<T>;
+  abort: () => void;
+}
+
+/**
+ * `XMLHttpRequest` rather than `fetch` — it's the one API that reports
+ * upload progress, which UI_UX_SPEC.md's editor requires a bar for.
+ */
+export function uploadFile<T>(
+  url: string,
+  file: File,
+  options: {
+    csrfCookieName?: string;
+    onProgress?: (fraction: number) => void;
+  } = {},
+): UploadHandle<T> {
+  const xhr = new XMLHttpRequest();
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const promise = new Promise<T>((resolve, reject) => {
+    xhr.open("POST", url);
+    xhr.withCredentials = true;
+    const headers = csrfHeaders(options.csrfCookieName);
+    for (const [key, value] of Object.entries(headers)) {
+      xhr.setRequestHeader(key, value);
+    }
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) {
+        options.onProgress?.(event.loaded / event.total);
+      }
+    };
+    xhr.onload = () => {
+      let json: {
+        data?: T;
+        error?: { code: string; message: string; details?: ApiErrorDetail[] };
+      };
+      try {
+        json = JSON.parse(xhr.responseText);
+      } catch {
+        reject(
+          new ApiError({ code: "UPLOAD_FAILED", message: "Upload failed." }),
+        );
+        return;
+      }
+      if (xhr.status >= 200 && xhr.status < 300 && json.data !== undefined) {
+        resolve(json.data);
+      } else {
+        reject(
+          new ApiError(
+            json.error ?? { code: "UPLOAD_FAILED", message: "Upload failed." },
+          ),
+        );
+      }
+    };
+    xhr.onerror = () => {
+      reject(
+        new ApiError({ code: "UPLOAD_FAILED", message: "Upload failed." }),
+      );
+    };
+    xhr.onabort = () => {
+      reject(
+        new ApiError({ code: "UPLOAD_FAILED", message: "Upload cancelled." }),
+      );
+    };
+    xhr.send(formData);
+  });
+
+  return { promise, abort: () => xhr.abort() };
+}

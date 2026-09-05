@@ -1,4 +1,5 @@
 import type { Priority, PostStatus } from "@/generated/prisma/client";
+import type { AttachmentDto } from "@/modules/attachments";
 import type { TiptapDocument } from "./content-schema";
 
 export interface ChangesRequestedBanner {
@@ -17,6 +18,7 @@ export interface PostEditorDto {
   departmentId: string | null;
   draftTitle: string | null;
   draftContentJson: TiptapDocument;
+  attachments: AttachmentDto[];
   draftUpdatedAt: string | null;
   requestedApproverId: string | null;
   requestedGroupId: string | null;

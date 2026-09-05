@@ -4,7 +4,7 @@ The build order, what "done" means at each step, and where we currently are.
 The 28 phases from the master specification are grouped into seven milestones so
 progress is reviewable in meaningful chunks rather than one uncontrolled change.
 
-**Current status: Phase 8 complete — awaiting the go-ahead to start Phase 9.**
+**Current status: Phase 9 complete — awaiting the go-ahead to start Phase 10.**
 
 ---
 
@@ -509,7 +509,7 @@ third-party sanitiser, `content-schema.ts` validates the editor's JSON
 against a closed, hand-written Zod vocabulary (paragraph/blockquote/
 bulleted and ordered lists, bold/italic/underline/strike marks, a link
 mark whose `href` must match `^https?://` or `^mailto:`), and
-`content-render.ts` only ever *constructs* HTML from that validated
+`content-render.ts` only ever _constructs_ HTML from that validated
 structure — there is no code path that parses or cleans an HTML string
 from the client, so there is nothing for a sanitiser bypass to bypass.
 Submission freezes both the JSON and the rendered HTML onto an immutable
@@ -613,14 +613,95 @@ per ADR-006.
   `format:check` and `build` are clean, with no AI-related affordance,
   label, table, or endpoint anywhere in the phase.
 
-### Phase 9 · File upload and local storage
+### Phase 9 · File upload and local storage — **complete**
 
-`FileStorage` + `LocalFileStorage`, the seven-step upload pipeline, Sharp
-re-encoding, ffprobe/ffmpeg handling, thumbnails, authenticated streaming
-endpoints, temp sweep.
-**Exit**: crafted-file tests (extension/MIME mismatch, polyglot, SVG, `../`
-paths, oversize) are all rejected; image and video upload, preview and reorder
-work in the editor.
+Delivered the whole upload surface behind a new `attachments` module:
+`FileStorage`/`LocalFileStorage` (`file-storage.ts`, keys opaque and
+path-escape-checked per ARCHITECTURE.md §6), the seven-step pipeline
+split across `upload-stream.ts` (step 1 — `busboy` streams the multipart
+body to a temp file with `MAX_UPLOAD_SIZE` enforced while bytes are still
+arriving, not after the fact), `validation.ts` (step 2 — extension/MIME
+allowlists; SVG needs no special case since `image/svg+xml` was never on
+the allowlist to begin with) and `media.ts` (steps 3-6 — `file-type`'s
+magic-byte sniff, Sharp re-encode + `THUMBNAIL_WIDTH` thumbnail for
+images, `ffprobe`/`ffmpeg` for video duration/codec/dimensions and a
+poster frame). `pipeline.ts` orchestrates and persists the `Attachment`
+row; `service.ts` adds read-policy authorization (uploader while
+`TEMPORARY`, the owning post's read policy once `ATTACHED`), deletion,
+and `attachToVersion` — the piece `posts/submit.ts` calls to bind the
+draft's ordered attachment list onto the just-frozen `PostVersion`.
+
+The one real design gap the spec left open (flagged by research before
+writing code, confirmed against every doc): `Attachment` has no FK to a
+draft, only to whichever `PostVersion` eventually references it, so
+nothing in the schema said how the editor's in-progress media list
+survives a reload before submission. Filled it the same way
+`draftTitle`/`draftContentJson` already work — a new `Post.draftAttachmentIds`
+column (migration `20260905184251_post_draft_attachment_ids`), an
+ordered array of attachment ids, read and written by the same
+`updateDraft`/`getPostForEdit` path as the rest of the draft. `PATCH
+/posts/:id` gained `attachmentIds`, validated for ownership before
+saving; the readiness checklist's "Attachments valid" item (a stub since
+Phase 8) is now real.
+
+Phase 9 was also the first phase to need a working background-job
+_runner_, not just the queue's schema — `src/jobs/queue.ts` implements
+the generic claim/run mechanics ARCHITECTURE.md §7 describes (`SELECT …
+FOR UPDATE SKIP LOCKED`, `PENDING → RUNNING → SUCCEEDED | PENDING (backoff)
+| DEAD`, stale-lock reclaim), with a handler registry any module can add
+to; `attachments/jobs.ts` registers `TEMP_FILE_CLEANUP` and
+`ORPHAN_ATTACHMENT_CLEANUP` as its first two consumers, and
+`worker.ts` now actually polls instead of just proving the process stays
+up. Later phases (16-20) reuse the same registry for their own job types.
+
+Two real bugs surfaced during verification, both fixed before landing.
+First, a genuine race in `upload-stream.ts`: busboy's own `"finish"`
+event (parsing done) can fire before the per-file write stream's
+_separate_ `"finish"` event (flushed to disk) — without a `sawFile` flag,
+the first `"finish"` always won and rejected every upload, valid or not,
+as "no file field found". Caught by the integration suite, not by hand
+because a synthetic in-memory `Request` in isolation didn't always
+expose the race — real disk I/O timing did. Second, the same class of
+bug Phase 8 hit with `pino-pretty`: `sharp`, `file-type` and `busboy` all
+do runtime module resolution a bundler can't statically analyze, and
+Turbopack failed real (non-test) uploads with "Cannot find module as
+expression is too dynamic" — invisible to `vitest` (which doesn't bundle
+through Turbopack) and only caught by actually driving the upload through
+a real dev server in Playwright. Fixed with `serverExternalPackages` in
+`next.config.ts`, Next's documented escape hatch for exactly this.
+
+Verifying the e2e flow also exposed a real, pre-existing race in Phase
+8's own `handleSubmit`: `router.refresh()` right after a successful
+submit re-runs `posts/[id]/edit/page.tsx` server-side with the post's
+now-changed `capabilities.canEdit`, and the page's `if (!canEdit) return
+<ErrorState/>` swapped `EditorScreen` out from under its own
+just-rendered `SubmissionConfirmation` — a structural change React has no
+choice but to unmount. It plausibly always raced; Phase 9's slightly
+larger client bundle just tipped it from "usually wins" to "reliably
+loses". Fixed by moving the gate into `EditorScreen` itself as a
+`useState` frozen at mount, so a later prop refresh can't retroactively
+hide a view already on screen — the parent page now always renders
+`EditorScreen` once a post is found.
+
+- **Exit — verified**: `tests/integration/attachments-pipeline.test.ts`
+  runs the real pipeline against real files — valid JPEG/PNG/MP4 are
+  accepted (re-encoded, thumbnailed/probed/postered); SVG, an
+  extension/MIME mismatch, a magic-byte mismatch, a truncated-but-valid-header
+  MP4 (the polyglot case), a disallowed type, and an oversize image (a
+  genuine >10MB file, not a synthetic byte count) are all rejected with
+  the right `FILE_TYPE_REJECTED`/`FILE_TOO_LARGE` code. `../` traversal
+  is covered in `file-storage.test.ts`'s `resolveStorageKey` unit tests.
+  `attachments-routes.test.ts` drives the real HTTP endpoints: upload,
+  uploader-vs-stranger read authorization while `TEMPORARY` and again
+  once `ATTACHED`, delete (and the 409 once attached), and a full
+  create → upload → patch → submit flow asserting the `PostVersionAttachment`
+  row and `ATTACHED` status. `tests/e2e/editor.spec.ts` adds a real
+  browser upload (drag-and-drop's keyboard-reachable file-input fallback,
+  per the accessibility requirement) through to a visible thumbnail,
+  remove, and the readiness count updating live. 40 new vitest tests and
+  1 new Playwright spec bring the suite to 212 vitest + 16 Playwright
+  tests, all green repeatably; `lint`, `typecheck`, `format:check` and
+  `build` are clean.
 
 ### Phase 10 · Post details and versioning
 

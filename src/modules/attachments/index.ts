@@ -5,4 +5,15 @@
  * from here — never from a file inside this directory directly. See
  * ARCHITECTURE.md §2 (module rules) for the boundary contract.
  */
-export {};
+export {
+  uploadAttachment,
+  canReadAttachment,
+  getAttachmentOrThrow,
+  deleteAttachment,
+  validateAttachmentOwnership,
+  listAttachmentDtos,
+  attachToVersion,
+  toAttachmentDto,
+} from "./service";
+export { type AttachmentDto } from "./types";
+export { getFileStorage, type FileStorage } from "./file-storage";

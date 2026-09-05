@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import sharp from "sharp";
 import { readSeededPassword, login } from "./support/demo-accounts";
 import { deletePostByTitle } from "./support/db-cleanup";
 
@@ -17,6 +18,7 @@ const CREATED_TITLES = [
   "Launching the new dashboard",
   "Accessibility check post",
   "Mobile editor check post",
+  "Media upload check post",
 ];
 
 test.afterEach(() => {
@@ -90,6 +92,37 @@ test.describe("Post Editor", () => {
 
     const results = await new AxeBuilder({ page }).include("body").analyze();
     expect(results.violations).toEqual([]);
+  });
+
+  test("uploads an image, shows it in the media gallery, and can remove it", async ({
+    page,
+  }) => {
+    const password = readSeededPassword();
+    await login(page, "john.doe@example.local", password);
+    await page.goto("/posts/new");
+    await page.waitForURL(/\/posts\/.+\/edit/);
+    await page.getByLabel("Title").fill("Media upload check post");
+
+    const buffer = await sharp({
+      create: { width: 20, height: 20, channels: 3, background: { r: 10, g: 200, b: 10 } },
+    })
+      .jpeg()
+      .toBuffer();
+
+    await page.getByLabel("Choose files to upload").setInputFiles({
+      name: "photo.jpg",
+      mimeType: "image/jpeg",
+      buffer,
+    });
+
+    const thumbnail = page.getByRole("img", { name: "photo.jpg" });
+    await expect(thumbnail).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText("1 attachment valid")).toBeVisible();
+
+    await thumbnail.hover();
+    await page.getByRole("button", { name: "Remove photo.jpg" }).click();
+    await expect(thumbnail).not.toBeVisible();
+    await expect(page.getByText("Attachments valid")).toBeVisible();
   });
 
   test("mobile: the sticky action bar and expandable readiness summary work", async ({

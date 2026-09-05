@@ -10,6 +10,7 @@ import type {
   PostEditorDto,
   ReadinessChecklist as ReadinessChecklistData,
 } from "@/modules/posts";
+import type { AttachmentDto } from "@/modules/attachments";
 import { renderContentHtml } from "@/modules/posts/content-render";
 import {
   getJson,
@@ -27,6 +28,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { RichTextEditor } from "./rich-text-editor";
+import { MediaUploader } from "./media-uploader";
 import { AutosaveStatusChip } from "./autosave-status";
 import { useAutosave } from "./use-autosave";
 import { useDraftRecovery } from "./use-draft-recovery";
@@ -37,12 +39,17 @@ import { ChangesRequestedBanner } from "./changes-requested-banner";
 import { PreviewDialog } from "./preview-dialog";
 import { SubmitConfirmationDialog } from "./submit-confirmation-dialog";
 import { SubmissionConfirmation } from "./submission-confirmation";
+import { ErrorState } from "@/components/app/error-state";
+import { PageHeader } from "@/components/app/page-header";
 
 export interface EditorScreenProps {
   post: PostEditorDto;
   departments: { id: string; name: string }[];
   maxCharacters: number;
   autosaveIntervalSeconds: number;
+  maxAttachments: number;
+  maxUploadSize: number;
+  allowedAttachmentTypes: string[];
 }
 
 interface SubmitResult {
@@ -56,15 +63,26 @@ export function EditorScreen({
   departments,
   maxCharacters,
   autosaveIntervalSeconds,
+  maxAttachments,
+  maxUploadSize,
+  allowedAttachmentTypes,
 }: EditorScreenProps) {
   const router = useRouter();
   const { toast } = useToast();
+
+  // Frozen at mount — a router.refresh() after a successful submit
+  // re-delivers this post with canEdit now false (its status moved past
+  // DRAFT), which must not retroactively hide the view already on screen.
+  const [canEditInitially] = useState(post.capabilities.canEdit);
 
   const [title, setTitle] = useState(post.draftTitle ?? "");
   const [content, setContent] = useState<JSONContent>(post.draftContentJson);
   const [priority, setPriority] = useState<Priority>(post.priority);
   const [departmentId, setDepartmentId] = useState(post.departmentId);
   const [changeSummary, setChangeSummary] = useState(post.changeSummary ?? "");
+  const [attachments, setAttachments] = useState<AttachmentDto[]>(
+    post.attachments,
+  );
   const [lockVersion, setLockVersion] = useState(post.lockVersion);
   const [readiness, setReadiness] = useState<ReadinessChecklistData | null>(
     null,
@@ -151,6 +169,13 @@ export function EditorScreen({
     });
   }
 
+  function handleAttachmentsChange(next: AttachmentDto[]) {
+    setAttachments(next);
+    patchMetadata({ attachmentIds: next.map((a) => a.id) }).catch(() => {
+      toast({ title: "Couldn't save media changes.", variant: "destructive" });
+    });
+  }
+
   function handleChangeSummaryBlur() {
     patchMetadata({ changeSummary: changeSummary || null }).catch(() => {
       toast({ title: "Couldn't save change summary.", variant: "destructive" });
@@ -201,6 +226,21 @@ export function EditorScreen({
         assigneeName={submitResult.assigneeName}
         postId={post.id}
       />
+    );
+  }
+
+  if (!canEditInitially) {
+    return (
+      <div>
+        <PageHeader
+          title="Edit post"
+          breadcrumbs={[
+            { label: "My Posts", href: "/posts" },
+            { label: "Edit" },
+          ]}
+        />
+        <ErrorState message="This post can't be edited — it isn't yours, or it's already past the draft stage." />
+      </div>
     );
   }
 
@@ -318,6 +358,14 @@ export function EditorScreen({
               onBlur={autosave.saveNow}
             />
           </div>
+
+          <MediaUploader
+            attachments={attachments}
+            onChange={handleAttachmentsChange}
+            maxAttachments={maxAttachments}
+            maxUploadSize={maxUploadSize}
+            allowedTypes={allowedAttachmentTypes}
+          />
         </div>
 
         <div className="hidden lg:block">
@@ -391,6 +439,7 @@ export function EditorScreen({
         onOpenChange={setPreviewOpen}
         title={title}
         contentHtml={contentHtml}
+        attachments={attachments}
       />
       <SubmitConfirmationDialog
         open={submitDialogOpen}

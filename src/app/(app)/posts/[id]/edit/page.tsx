@@ -5,8 +5,6 @@ import { getPostForEdit } from "@/modules/posts";
 import { prisma } from "@/server/db";
 import { config } from "@/server/config";
 import { EditorScreen } from "@/components/app/editor/editor-screen";
-import { ErrorState } from "@/components/app/error-state";
-import { PageHeader } from "@/components/app/page-header";
 
 export const metadata: Metadata = { title: "Edit post — Content Approval" };
 
@@ -30,27 +28,24 @@ export default async function EditPostPage({
 
   if (!post) notFound();
 
-  if (!post.capabilities.canEdit) {
-    return (
-      <div>
-        <PageHeader
-          title="Edit post"
-          breadcrumbs={[
-            { label: "My Posts", href: "/posts" },
-            { label: "Edit" },
-          ]}
-        />
-        <ErrorState message="This post can't be edited — it isn't yours, or it's already past the draft stage." />
-      </div>
-    );
-  }
-
+  // The "can't edit" gate lives inside EditorScreen (checked once, from the
+  // post's state as first loaded), not here — a router.refresh() right
+  // after a successful submit re-runs this Server Component with
+  // canEdit now false, and gating here would swap EditorScreen out for
+  // an error view mid-render, discarding the submission-confirmation
+  // state it had just set.
   return (
     <EditorScreen
       post={post}
       departments={departments}
       maxCharacters={config.POST_MAX_CHARACTERS}
       autosaveIntervalSeconds={config.AUTOSAVE_INTERVAL_SECONDS}
+      maxAttachments={config.MAX_ATTACHMENTS_PER_POST}
+      maxUploadSize={config.MAX_UPLOAD_SIZE}
+      allowedAttachmentTypes={[
+        ...config.ALLOWED_IMAGE_TYPES,
+        ...config.ALLOWED_VIDEO_TYPES,
+      ]}
     />
   );
 }

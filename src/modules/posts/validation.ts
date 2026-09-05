@@ -1,8 +1,10 @@
 import { z } from "zod";
+import { config } from "@/server/config";
 import { tiptapDocumentSchema } from "./content-schema";
 
 const PRIORITY_VALUES = ["LOW", "NORMAL", "HIGH", "URGENT"] as const;
 const uuid = z.string().uuid();
+const attachmentIdsSchema = z.array(uuid).max(config.MAX_ATTACHMENTS_PER_POST);
 
 export const createPostSchema = z.object({
   // Empty on purpose: "/posts/new" creates the draft the moment it's
@@ -21,6 +23,9 @@ export const updatePostSchema = z.object({
   requestedApproverId: uuid.nullable().optional(),
   requestedGroupId: uuid.nullable().optional(),
   changeSummary: z.string().trim().max(500).nullable().optional(),
+  // Media additions/removals/reorders save immediately (like department),
+  // not on the debounced autosave path — see EditorScreen.patchMetadata.
+  attachmentIds: attachmentIdsSchema.optional(),
 });
 export type UpdatePostInput = z.infer<typeof updatePostSchema>;
 

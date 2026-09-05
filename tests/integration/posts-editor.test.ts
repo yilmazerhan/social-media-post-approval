@@ -160,6 +160,7 @@ describe("updateDraft", () => {
 
     const result = await updateDraft({
       postId: id,
+      creatorId: creator.id,
       input: {
         lockVersion: 0,
         title: "Updated title",
@@ -186,7 +187,11 @@ describe("updateDraft", () => {
     createdPostIds.push(id);
 
     await expect(
-      updateDraft({ postId: id, input: { lockVersion: 5 } }),
+      updateDraft({
+        postId: id,
+        creatorId: creator.id,
+        input: { lockVersion: 5 },
+      }),
     ).rejects.toMatchObject({
       code: "STALE_RESOURCE",
     } satisfies Partial<WorkflowError>);
@@ -194,7 +199,11 @@ describe("updateDraft", () => {
 
   it("throws NotFoundError for a post that doesn't exist", async () => {
     await expect(
-      updateDraft({ postId: randomUUID(), input: { lockVersion: 0 } }),
+      updateDraft({
+        postId: randomUUID(),
+        creatorId: randomUUID(),
+        input: { lockVersion: 0 },
+      }),
     ).rejects.toBeInstanceOf(NotFoundError);
   });
 });
@@ -258,6 +267,7 @@ describe("getReadiness", () => {
     createdPostIds.push(id);
     await updateDraft({
       postId: id,
+      creatorId: creator.id,
       input: {
         lockVersion: 0,
         contentJson: richContent,
@@ -285,6 +295,7 @@ describe("submitPost", () => {
     createdPostIds.push(id);
     await updateDraft({
       postId: id,
+      creatorId: creator.id,
       input: {
         lockVersion: 0,
         contentJson: richContent,
@@ -341,6 +352,7 @@ describe("submitPost", () => {
     createdPostIds.push(id);
     await updateDraft({
       postId: id,
+      creatorId: creator.id,
       input: {
         lockVersion: 0,
         contentJson: richContent,
@@ -385,6 +397,7 @@ describe("submitPost", () => {
     createdPostIds.push(id);
     await updateDraft({
       postId: id,
+      creatorId: creator.id,
       input: {
         lockVersion: 0,
         contentJson: richContent,
