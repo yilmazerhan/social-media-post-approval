@@ -22,6 +22,12 @@ export {
   type RoutePreviewResult,
 } from "./route-resolution";
 export { reassignApproval, type ReassignResult } from "./assignment";
+export {
+  getApprovalQueue,
+  type QueueFilters,
+  type QueueRow,
+  type QueuePage,
+} from "./queue";
 export { assertLegalTransition } from "./state-machine";
 export {
   startReview,

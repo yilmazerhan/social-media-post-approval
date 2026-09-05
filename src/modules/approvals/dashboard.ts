@@ -13,7 +13,8 @@ const RECENTLY_COMPLETED_WINDOW_DAYS = 7;
 const SLA_COMPLIANCE_WINDOW_DAYS = 30;
 const AVG_APPROVAL_TIME_WINDOW_DAYS = 30;
 
-function assignedToMeFilter(user: AuthorizedUser) {
+/** Shared by the dashboard aggregates and the queue listing (queue.ts) — the one definition of "my open assignments." */
+export function assignedToMeFilter(user: AuthorizedUser) {
   return {
     OR: [
       { assigneeUserId: user.id },

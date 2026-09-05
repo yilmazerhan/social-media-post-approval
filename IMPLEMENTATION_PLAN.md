@@ -4,7 +4,7 @@ The build order, what "done" means at each step, and where we currently are.
 The 28 phases from the master specification are grouped into seven milestones so
 progress is reviewable in meaningful chunks rather than one uncontrolled change.
 
-**Current status: Phase 12 complete — proceeding directly to Phase 13 per the user's standing instruction to work through all remaining phases.**
+**Current status: Phase 13 complete — proceeding directly to Phase 14 per the user's standing instruction to work through all remaining phases.**
 
 ---
 
@@ -894,11 +894,69 @@ catalogue has no dedicated "manage approval rules" key, and `SETTINGS_MANAGE`
   phase — reassignment's own screen ("bulk assign, never bulk approve") is
   Phase 13's Approval Queue, and the preview's admin screen is Phase 21.
 
-### Phase 13 · Approval Queue
+### Phase 13 · Approval Queue — **complete**
 
-Queue table with due-date sort, quick filters, bulk assign (never bulk approve).
-**Exit**: filters and pagination correct; an approver sees only what they may
-see.
+Built `approvals/queue.ts`'s `getApprovalQueue` and the real `/approvals`
+screen, replacing Phase 7's placeholder. "My queue" is deliberately
+personal — scoped to assignments routed to the caller directly or via
+their groups (`assignedToMeFilter`, now shared with the dashboard
+aggregates that already used it), never widened by `POST_READ_ALL`: that
+permission governs reading one post's full detail, not "my queue," which
+is "my" by definition. The four UI_UX_SPEC.md §6 quick filters (Overdue /
+Due today / Unassigned / My group) all map onto real, already-existing
+columns rather than invented state: `dueAt` for the first two,
+`assigneeUserId IS NULL` for a group assignment nobody has personally
+picked up yet ("Unassigned"), and `assigneeGroupId` narrowed to the
+caller's own groups for "My group" (a subset of "my queue," which
+otherwise mixes direct and group assignments). `dueAt`/`warningAt` are
+always `null` until Phase 19 computes them, so `overdue`/`dueToday` are
+real, correct queries against columns nothing populates yet — not faked
+data, just usually-empty until then.
+
+A real bug surfaced and got fixed here, not routed around: `APPROVAL_READ`
+is dual-purpose in `authorization/service.ts` — grant-only for "my queue,"
+resource-scoped via `checkApprovalRead` for reading one post
+(`GET /:postId`) — and `can()`'s dispatch always takes the resource-scoped
+path for that key regardless of context. Passing `permission:
+"APPROVAL_READ"` to `protectedHandler` with no `loadResource` therefore
+403'd every real request (`checkApprovalRead` sees `resource: undefined`
+and returns `false`) — caught only once the queue was driven through a
+real browser, the same way Phase 9's Turbopack bug was. Rather than bend
+`checkApprovalRead`'s resource-scoped contract (right for `GET /:postId`,
+wrong for a query that's already self-scoping), the queue route checks
+`authz.permissions.has("APPROVAL_READ")` directly instead of going
+through `assert()`.
+
+Bulk assign reuses Phase 12's existing `/:postId/assign` endpoint per
+selected row — API.md's own endpoint table has no separate bulk-assign
+route, so the queue's "Assign N selected" action is a client-side loop,
+not a new backend endpoint. Its target picker is a raw user/group ID
+field, not a real people-picker — there's no user-search endpoint yet
+(that's Phase 21's `GET /users/mentionable`-adjacent territory), and
+building one now would pull Phase 21's work forward; recorded here as a
+deliberate, narrow gap rather than a silently half-built feature. `DataTable`
+(Phase 6) gets its first real usage: still client-side paginated per its
+own doc comment ("a future screen... can switch to manual/server-side
+pagination"), so the screen requests up to 100 matching rows and lets it
+paginate in-browser, while `getApprovalQueue`'s own `page`/`pageSize`/`total`
+are real and independently tested. Also noticed, not fixed (out of this
+phase's scope): "My Posts" (`/posts`) is still Phase 7's `ComingSoon`
+placeholder despite its own copy claiming Phase 9/10 — a pre-existing gap
+from an earlier phase, not one this phase's exit criterion touches.
+
+- **Exit — verified**: `tests/integration/approval-queue.test.ts` proves
+  visibility scoping (a user sees only their own direct/group assignments,
+  never another user's), every filter (priority, department, overdue, due
+  today, unassigned) against real data, and pagination correctness across
+  two pages with no overlap or gap. `tests/e2e/approval-queue.spec.ts`
+  drives the real screen against the seeded hero fixture (Jane Manager's
+  open review): the queue row renders, a non-matching priority filter
+  empties it and Clear filters restores it, an employee without
+  `APPROVAL_READ` is redirected away from `/approvals` entirely, and a
+  dedicated axe pass finds zero violations. 5 new vitest tests and 1 new
+  Playwright spec (3 tests) bring the suite to 245 vitest + 21 Playwright
+  tests, all green repeatably; `lint`, `typecheck`, `format:check` and
+  `build` are clean.
 
 ### Phase 14 · Approval Review (hero screen B)
 
