@@ -4,7 +4,7 @@ The build order, what "done" means at each step, and where we currently are.
 The 28 phases from the master specification are grouped into seven milestones so
 progress is reviewable in meaningful chunks rather than one uncontrolled change.
 
-**Current status: Phase 14 complete — proceeding directly to Phase 15 per the user's standing instruction to work through all remaining phases.**
+**Current status: Phase 15 complete — proceeding directly to Phase 16 per the user's standing instruction to work through all remaining phases.**
 
 ---
 
@@ -1025,12 +1025,81 @@ just to re-prove machinery Phase 11 already covers.
   green repeatably; `lint`, `typecheck`, `format:check` and `build` are
   clean. Grep of the diff confirms "AI" appears nowhere.
 
-### Phase 15 · Comments and collaboration
+### Phase 15 · Comments and collaboration — **complete**
 
-Threaded comments bound to versions, server-side mention parsing, mention
-autocomplete restricted to visible users, sanitised rendering.
-**Exit**: mentions notify the right people; a claimed mention list from the
-client is ignored.
+Built the `comments` module (`listComments`, `createComment`,
+`updateComment`, `deleteComment`, `listMentionableUsers`,
+`parseAndRenderComment`) and wired real threads into both Post Details'
+Comments tab and Approval Review's sidebar, replacing their static empty
+states — one `CommentThread` component, since both screens need the
+identical thread-plus-composer-plus-mention-autocomplete UI.
+
+**Mentions are never trusted from the client — by construction, not by a
+filter.** `createComment`/`updateComment` accept only `body`; there is no
+field anywhere in the input schema for a client-supplied mention list, so
+"a claimed mention list from the client is ignored" holds because there
+is nothing to ignore. The server independently re-derives who was
+mentioned: `parseAndRenderComment` matches `@` against the _exact_
+`displayName` of users in the author's own mentionable pool (longest name
+first, so "Jane Manager" beats a shorter overlapping "Jane"), and only a
+name found there ever becomes a `CommentMention` row or a
+`COMMENT_MENTION` notification — typing `@SomeoneInvisible` renders as
+inert plain text. Escaping the whole body and re-wrapping exactly the
+matched spans in one `<strong>` tag _is_ the "sanitised rendering":
+comments carry no HTML input path at all, so there's nothing else to
+sanitize away. `GET /users/mentionable?q=` (not post-scoped, matching
+API.md's own signature) and the parsing candidate pool share one
+definition of "visible": the caller's department, widened to everyone for
+a `POST_READ_ALL` holder — the same boundary `checkApprovalRead` already
+draws.
+
+Comment visibility itself needed a real decision `checkApprovalRead`
+alone doesn't answer: a comment thread must be reachable from **both**
+Post Details (the creator) and Approval Review (the approver), so
+`assertCanAccessPost` is `creatorId === viewer` OR
+`can(authz, "APPROVAL_READ", …)` against `approvals/loadApprovalReadResource`
+— reused rather than re-derived, and enforced inside `listComments`/
+`createComment` themselves (not only at the route layer), so a bug in one
+call site can't silently drop the check. DATABASE.md's "one level of
+replies" is a real constraint, not just schema shape: replying to a reply
+is refused (`INVALID_TRANSITION`), checked by walking the parent's own
+`parentId`. `updateComment` enforces the new `COMMENT_EDIT_WINDOW_MINUTES`
+config (default 30) author-only, no admin override — API.md's PATCH row
+says "author," period; `deleteComment` allows the author _or_ a
+`POST_READ_ALL` holder, the same "or admin" signal Phase 11's
+`checkCancelPost` established. `isInternal` (schema-present) isn't settable
+here — API.md's create-comment payload never lists it — a narrow,
+recorded gap rather than built-and-unreachable.
+
+A real bug in `listMentionableUsers`' own design surfaced from an
+integration test, not a browser: its `limit` parameter defaulted to `10`
+even when a caller explicitly passed `undefined` (JavaScript's own default-parameter
+rule — an explicit `undefined` still triggers the default), so
+`createComment`'s "match against the whole candidate pool" call was
+silently capped to 10 alphabetically-first users, missing a real mention
+in a database with more than that. Fixed by making "no limit" a distinct
+value (`null`) from "omitted" (`undefined`), so the two calling
+conventions can't collide.
+
+- **Exit — verified**: `tests/unit/mentions.test.ts` covers escaping,
+  exact-match recognition, the longest-overlapping-name preference,
+  rejecting a non-candidate name, de-duplication, and the word-boundary
+  case ("Jane" must not match inside "Janet").
+  `tests/integration/comments.test.ts` proves a mention notifies the
+  right recipient with a real `COMMENT_MENTION` row, an invisible-to-the-author
+  mention notifies no one, one-level-deep replies work and a
+  reply-to-a-reply is refused, both visibility paths (creator and
+  approver) can read and post while a true outsider is refused on both
+  list and create, the edit window is author-only, delete is author-or-`POST_READ_ALL`,
+  and `listMentionableUsers` scopes to department (widened for
+  `POST_READ_ALL`). `tests/e2e/comments.spec.ts` drives the real
+  composer's `@` autocomplete in a browser end to end: mentioning a
+  colleague, seeing the rendered `<strong class="mention">`, and a
+  cross-session reply — against a fresh, disposable post, never the
+  shared hero fixture. 6 new vitest unit tests, 8 new integration tests,
+  1 new Playwright spec bring the suite to 264 vitest + 27 Playwright
+  tests, all green repeatably; `lint`, `typecheck`, `format:check` and
+  `build` are clean.
 
 ---
 

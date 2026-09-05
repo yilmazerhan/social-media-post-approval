@@ -154,6 +154,8 @@ environment variable is ignored.
 | `RETENTION_DRY_RUN`           | `true`  | `retention.dryRun`            |
 | `POST_MAX_CHARACTERS`         | `2200`  | `post.maxCharacters`          |
 | `AUTOSAVE_INTERVAL_SECONDS`   | `3`     | `editor.autosaveSeconds`      |
+| `COMMENT_MAX_CHARACTERS`      | `2000`  | `comment.maxCharacters`       |
+| `COMMENT_EDIT_WINDOW_MINUTES` | `30`    | `comment.editWindowMinutes`   |
 
 Retention defaults to **dry run**. An administrator enables real deletion
 deliberately, after reviewing what a dry run reports.

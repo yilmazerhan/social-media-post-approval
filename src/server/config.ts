@@ -238,6 +238,8 @@ const envSchema = z
     RETENTION_DRY_RUN: zBool(true),
     POST_MAX_CHARACTERS: zInt(2200, { min: 1 }),
     AUTOSAVE_INTERVAL_SECONDS: zInt(3, { min: 1 }),
+    COMMENT_MAX_CHARACTERS: zInt(2000, { min: 1 }),
+    COMMENT_EDIT_WINDOW_MINUTES: zInt(30, { min: 0 }),
   })
   .superRefine((data, ctx) => {
     if (data.AUTH_SAML_ENABLED) {

@@ -16,6 +16,7 @@ import { PriorityBadge } from "@/components/app/priority-badge";
 import { SLAIndicator } from "@/components/app/sla-indicator";
 import { EmptyState } from "@/components/app/empty-state";
 import { ACTION_LABELS } from "@/components/app/activity-item";
+import { CommentThread } from "@/components/app/comments/comment-thread";
 import { VersionDiff } from "@/components/app/post-details/version-diff";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -41,7 +42,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
-import { FileText, MessageSquare } from "lucide-react";
+import { FileText } from "lucide-react";
 
 type DecisionAction = "APPROVE" | "REQUEST_CHANGES" | "REJECT";
 
@@ -563,8 +564,8 @@ function HistoryAndComments({ payload }: { payload: ApprovalReviewDto }) {
         )}
       </div>
       <div className="border-t pt-4">
-        <h2 className="text-sm font-semibold">COMMENTS (0)</h2>
-        <EmptyState icon={MessageSquare} title="No comments yet." />
+        <h2 className="mb-2 text-sm font-semibold">COMMENTS</h2>
+        <CommentThread postId={payload.header.postId} />
       </div>
     </div>
   );

@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { format } from "date-fns";
-import { FileText, MessageSquare } from "lucide-react";
+import { FileText } from "lucide-react";
 import type {
   PostDetailDto,
   VersionSummaryDto,
@@ -23,6 +23,7 @@ import { StatusBadge } from "@/components/app/status-badge";
 import { PriorityBadge } from "@/components/app/priority-badge";
 import { EmptyState } from "@/components/app/empty-state";
 import { ACTION_LABELS } from "@/components/app/activity-item";
+import { CommentThread } from "@/components/app/comments/comment-thread";
 import { VersionDiff } from "./version-diff";
 
 function formatDate(value: string | null): string {
@@ -300,7 +301,7 @@ export function PostDetailsView({
         />
       </TabsContent>
       <TabsContent value="comments">
-        <EmptyState icon={MessageSquare} title="No comments yet." />
+        <CommentThread postId={post.id} />
       </TabsContent>
       <TabsContent value="activity">
         <ActivityList entries={activity} emptyTitle="No activity yet." />
