@@ -4,7 +4,7 @@ The build order, what "done" means at each step, and where we currently are.
 The 28 phases from the master specification are grouped into seven milestones so
 progress is reviewable in meaningful chunks rather than one uncontrolled change.
 
-**Current status: Phase 11 complete — proceeding directly to Phase 12 per the user's standing instruction to work through all remaining phases.**
+**Current status: Phase 12 complete — proceeding directly to Phase 13 per the user's standing instruction to work through all remaining phases.**
 
 ---
 
@@ -833,13 +833,66 @@ screens are Phase 12–14, not this one.
   this phase — there is no new screen yet to drive; Phase 14 exercises
   these endpoints through the real Approval Review UI.
 
-### Phase 12 · Approval assignment
+### Phase 12 · Approval assignment — **complete**
 
-`ApprovalRule` evaluation by `priorityOrder`, target types (user, group,
-department manager), creator override where allowed, reassignment, the admin
-rule preview.
-**Exit**: routing resolves server-side for every seeded rule; the frontend
-contains no routing logic at all.
+`ApprovalRule` evaluation by `priorityOrder` and all three target types
+(user, group, department manager) was already built in Phase 8's
+`route-resolution.ts`, along with creator override — the matching query
+this phase and submission both need, per that file's own comment
+("`allowCreatorOverride` is the only thing that lets a creator's own
+choice replace the rule's own target"). This phase adds the two pieces
+that comment named as still missing: manual reassignment
+(`approvals/assignment.ts`'s `reassignApproval`, wired to
+`POST /api/v1/approvals/:postId/assign`) and the admin dry-run preview
+(`route-resolution.ts`'s new `previewApprovalRoute`, wired to
+`POST /api/v1/admin/approval-rules/preview`) — UI_UX_SPEC.md §6's "Approval
+rules include a 'test this rule' preview that shows which route a
+hypothetical post would take," run against a synthetic post rather than a
+real one, through the exact same `resolveApprovalRoute` submission uses.
+
+Reassignment never checks who the post belongs to: `APPROVAL_ASSIGN` is
+grant-only in the permission catalogue (AUTHENTICATION.md §5), not
+resource-scoped like `POST_APPROVE`/`POST_REJECT`, so anyone holding it may
+redirect any post's open assignment — matching how `can()` already treats
+every grant-only permission. It also never touches `Post.status` or
+`lockVersion`, since only the `ApprovalAssignment` row and the historical
+`ApprovalAction` change; that's also why it isn't run through
+`assertLegalTransition` even though `ASSIGN`/`REASSIGN` are two of
+`ApprovalActionType`'s nine values — nothing about `PostStatus` transitions
+here, so there's no `(from, action, to)` row for either in
+state-machine.ts's table. Which of the two values gets written is decided
+by whether an earlier `ASSIGN`/`REASSIGN` action already exists against
+that same assignment row: the first manual redirect of an auto-routed
+assignment is `ASSIGN`, everything after is `REASSIGN` — a real distinction
+the schema draws (both are separate enum values) that submission's
+automatic routing never itself writes an `ApprovalAction` for, so the
+first manual touch is always the first row.
+
+No admin CRUD screen for approval rules yet — full create/edit/delete
+lives with the other thirteen sections of UI_UX_SPEC.md §6 in Phase 21
+("Administration"); this phase only had to prove the preview's own
+routing logic, which is why the preview endpoint sits under
+`/api/v1/admin/approval-rules/preview` even though nothing else in
+`/admin` exists yet. It's gated on `SETTINGS_MANAGE` — the permission
+catalogue has no dedicated "manage approval rules" key, and `SETTINGS_MANAGE`
+("Change system settings") is the closest existing ADMIN-only grant to
+"configure routing," so it's reused rather than inventing a new one.
+
+- **Exit — verified**: `tests/integration/approval-assignment.test.ts`
+  proves `resolveApprovalRoute` honors the creator's requested approver
+  when `allowCreatorOverride` is true and ignores it when false (two rules
+  differing only in that flag), `previewApprovalRoute` returns the
+  matching rule and assignee name for a hypothetical post and a
+  well-formed `null` shape when none matches, and `reassignApproval`
+  writes `ASSIGN` on the first manual redirect of a submitted post's
+  assignment and `REASSIGN` on the next, resolves both a user's
+  `displayName` and a group's `name` correctly, clears the other assignee
+  column on a user→group switch, and refuses a post with no open
+  assignment. 7 new vitest tests bring the suite to 240 vitest + 18
+  Playwright tests, all green repeatably; `lint`, `typecheck`,
+  `format:check` and `build` are clean. No new Playwright spec or UI this
+  phase — reassignment's own screen ("bulk assign, never bulk approve") is
+  Phase 13's Approval Queue, and the preview's admin screen is Phase 21.
 
 ### Phase 13 · Approval Queue
 

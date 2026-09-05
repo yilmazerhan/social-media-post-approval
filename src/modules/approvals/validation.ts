@@ -8,6 +8,7 @@
 import { z } from "zod";
 
 const uuid = z.string().uuid();
+const PRIORITY_VALUES = ["LOW", "NORMAL", "HIGH", "URGENT"] as const;
 
 export const approveSchema = z.object({
   postVersionId: uuid,
@@ -29,3 +30,27 @@ export const rejectSchema = z.object({
   reason: z.string().max(2000).optional(),
 });
 export type RejectInput = z.infer<typeof rejectSchema>;
+
+export const reassignSchema = z
+  .object({
+    assigneeUserId: uuid.nullable().optional(),
+    assigneeGroupId: uuid.nullable().optional(),
+  })
+  .refine(
+    (data) => Boolean(data.assigneeUserId) !== Boolean(data.assigneeGroupId),
+    {
+      message: "Exactly one of assigneeUserId or assigneeGroupId is required.",
+      path: ["assigneeUserId"],
+    },
+  );
+export type ReassignInput = z.infer<typeof reassignSchema>;
+
+/** UI_UX_SPEC.md §6's admin "test this rule" preview — the same shape `resolveApprovalRoute` matches against, minus an actual `Post` row. */
+export const routePreviewSchema = z.object({
+  departmentId: uuid.nullable().optional(),
+  priority: z.enum(PRIORITY_VALUES).default("NORMAL"),
+  creatorId: uuid,
+  requestedApproverId: uuid.nullable().optional(),
+  requestedGroupId: uuid.nullable().optional(),
+});
+export type RoutePreviewInput = z.infer<typeof routePreviewSchema>;

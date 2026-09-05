@@ -91,6 +91,28 @@ export async function resolveAssigneeName(
   return null;
 }
 
+export interface RoutePreviewResult {
+  rule: { id: string; name: string; priorityOrder: number } | null;
+  assigneeName: string | null;
+}
+
+/** UI_UX_SPEC.md §6's admin "test this rule" preview — the exact same matching query as submission, run against a hypothetical post instead of a real one. */
+export async function previewApprovalRoute(
+  post: RoutablePost,
+): Promise<RoutePreviewResult> {
+  const route = await resolveApprovalRoute(post);
+  if (!route) return { rule: null, assigneeName: null };
+  const assigneeName = await resolveAssigneeName(route);
+  return {
+    rule: {
+      id: route.rule.id,
+      name: route.rule.name,
+      priorityOrder: route.rule.priorityOrder,
+    },
+    assigneeName,
+  };
+}
+
 /** The first active rule (by `priorityOrder`) that matches the post and resolves to a real assignee, or `null`. */
 export async function resolveApprovalRoute(
   post: RoutablePost,

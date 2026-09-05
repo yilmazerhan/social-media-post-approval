@@ -16,9 +16,12 @@ export {
 export {
   resolveApprovalRoute,
   resolveAssigneeName,
+  previewApprovalRoute,
   type ResolvedRoute,
   type RoutablePost,
+  type RoutePreviewResult,
 } from "./route-resolution";
+export { reassignApproval, type ReassignResult } from "./assignment";
 export { assertLegalTransition } from "./state-machine";
 export {
   startReview,
@@ -36,7 +39,11 @@ export {
   approveSchema,
   requestChangesSchema,
   rejectSchema,
+  reassignSchema,
+  routePreviewSchema,
   type ApproveInput,
   type RequestChangesInput,
   type RejectInput,
+  type ReassignInput,
+  type RoutePreviewInput,
 } from "./validation";
