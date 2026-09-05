@@ -1,10 +1,16 @@
 package com.kron.socialapproval.identity.internal.domain;
 
 /**
- * A way of proving identity, not a kind of user. Both values resolve to the same {@code app_user}
- * row and nothing downstream cares which was used (ARCHITECTURE.md section 5.1).
+ * How a person proves who they are.
+ *
+ * <p>This is a property of the account, not a kind of user: everything downstream — permissions,
+ * approvals, notifications — behaves identically whichever value a user carries.
  */
 public enum AuthProvider {
+
+    /** Username and password held by this application, hashed with Argon2id. */
     LOCAL,
-    SAML_ENTRA
+
+    /** Microsoft Entra ID. The directory owns the credential; this application never sees it. */
+    ENTRA_ID
 }

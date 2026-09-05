@@ -34,6 +34,7 @@ ARCHITECTURE.md.
 | Layer | Technology |
 |---|---|
 | Backend | Java 21, Spring Boot 4.1, modular monolith |
+| Schema | 29 tables across five Flyway migrations — inventory in ARCHITECTURE.md Appendix C |
 | Database | PostgreSQL 16, Flyway migrations, Spring Data JPA |
 | Cache / sessions | Redis 7, Spring Session (opaque cookie, no JWT) |
 | Object storage | S3-compatible via AWS SDK v2 (MinIO locally) |
@@ -55,6 +56,11 @@ cd frontend && npm install && npm run dev   # http://localhost:5173
 
 Sign in with `john.smith` (author), `sarah.johnson` (approver) or `admin`, password
 `Demo!Passw0rd`. Those accounts exist **only** under the `demo` profile.
+
+Without `demo`, the `local` profile creates a single administrator and prints a one-time password to
+the log — the account is flagged must-change and no password is ever written in source. Supply your
+own with `KSA_DEV_SEED_ADMIN_PASSWORD`, or switch the seed off entirely with
+`KSA_DEV_SEED_ENABLED=false`. It refuses to run under the `prod` profile. See ARCHITECTURE.md C.5.
 
 ### A note on the SAML dependency
 

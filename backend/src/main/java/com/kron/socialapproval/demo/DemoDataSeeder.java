@@ -23,6 +23,7 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
+import org.springframework.core.annotation.Order;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.transaction.annotation.Transactional;
@@ -62,14 +63,20 @@ public class DemoDataSeeder {
     private static final String V1_CLOSING_TEXT = V1_CLOSING.replace("Yıldırım", "Yildirim");
     private static final String V2_CLOSING_TEXT = V2_CLOSING.replace("Yıldırım", "Yildirim");
 
+    // Runs before the administrator seed, which then sees the demo administrator and stands down.
     @Bean
+    @Order(10)
     public ApplicationRunner seedDemoData(JdbcClient jdbc, PasswordEncoder passwordEncoder, BlobStorage storage) {
         return args -> seed(jdbc, passwordEncoder, storage);
     }
 
     @Transactional
     void seed(JdbcClient jdbc, PasswordEncoder passwordEncoder, BlobStorage storage) {
-        Long existing = jdbc.sql("SELECT COUNT(*) FROM app_user").query(Long.class).single();
+        // Guard on the fixture's own marker rather than on "are there any users": an environment
+        // seeded with an administrator and nothing else still wants the demo content.
+        Long existing = jdbc.sql("SELECT COUNT(*) FROM app_user WHERE username = 'john.smith'")
+                .query(Long.class)
+                .single();
         if (existing != null && existing > 0) {
             log.info("Demo data already present; leaving it alone.");
             return;
@@ -200,30 +207,26 @@ public class DemoDataSeeder {
         log.warn("Demo data ready. Password for every demo account: {}", DEMO_PASSWORD);
     }
 
+    /**
+     * Creates a local demo account. Department is matched by name against the reference data seeded
+     * in V5, so the fixture never invents organisational structure of its own.
+     */
     private UUID createUser(JdbcClient jdbc, PasswordEncoder encoder, String username, String email,
                             String firstName, String lastName, String department, String title, String role) {
         UUID id = Ids.newId();
         jdbc.sql("""
-                 INSERT INTO app_user (id, email, username, first_name, last_name, display_name, department,
-                                       job_title, status, primary_auth_source)
-                 VALUES (:id, :email, :username, :first, :last, :display, :department, :title, 'ACTIVE', 'LOCAL')
+                 INSERT INTO app_user (id, email, username, first_name, last_name, display_name,
+                                       department_id, job_title, status, auth_provider, password_hash,
+                                       password_updated_at)
+                 SELECT :id, :email, :username, :first, :last, :display, d.id, :title, 'ACTIVE', 'LOCAL',
+                        :hash, now()
+                   FROM department d WHERE d.name = :department
                  """)
                 .param("id", id).param("email", email).param("username", username)
                 .param("first", firstName).param("last", lastName)
                 .param("display", firstName + " " + lastName)
                 .param("department", department).param("title", title)
-                .update();
-
-        jdbc.sql("INSERT INTO local_credential (user_id, password_hash) VALUES (:id, :hash)")
-                .param("id", id).param("hash", encoder.encode(DEMO_PASSWORD))
-                .update();
-
-        jdbc.sql("""
-                 INSERT INTO identity_link (id, user_id, provider, external_id, subject_hint)
-                 VALUES (:linkId, :id, 'LOCAL', :external, :email)
-                 """)
-                .param("linkId", Ids.newId()).param("id", id)
-                .param("external", id.toString()).param("email", email)
+                .param("hash", encoder.encode(DEMO_PASSWORD))
                 .update();
 
         assignRole(jdbc, id, role);
@@ -232,7 +235,7 @@ public class DemoDataSeeder {
 
     private void assignRole(JdbcClient jdbc, UUID userId, String roleCode) {
         jdbc.sql("""
-                 INSERT INTO role_assignment (id, user_id, role_id, scope_type, source)
+                 INSERT INTO user_role (id, user_id, role_id, scope_type, source)
                  SELECT :id, :userId, r.id, 'GLOBAL', 'MANUAL' FROM role r WHERE r.code = :code
                  ON CONFLICT (user_id, role_id, scope_type) DO NOTHING
                  """)
@@ -287,8 +290,8 @@ public class DemoDataSeeder {
     private void insertDecision(JdbcClient jdbc, UUID requestId, UUID stepId, UUID versionId, UUID decidedBy,
                                 String decision, String comment, Instant at) {
         jdbc.sql("""
-                 INSERT INTO approval_decision (id, approval_request_id, approval_step_id, post_version_id,
-                                                decided_by, decision, comment, decided_at)
+                 INSERT INTO approval_action (id, approval_request_id, approval_step_id, post_version_id,
+                                              actor_id, action, note, performed_at)
                  VALUES (:id, :request, :step, :version, :by, :decision, :comment, :at)
                  """)
                 .param("id", Ids.newId()).param("request", requestId).param("step", stepId)
@@ -361,8 +364,8 @@ public class DemoDataSeeder {
     private void seedAiReview(JdbcClient jdbc, UUID postId, UUID versionId, Instant now) {
         UUID reviewId = Ids.newId();
         jdbc.sql("""
-                 INSERT INTO ai_review (id, post_id, post_version_id, provider, model, status, risk_level,
-                                        risk_score, summary, latency_ms, created_at, completed_at)
+                 INSERT INTO ai_analysis (id, post_id, post_version_id, provider, model, status, risk_level,
+                                          risk_score, summary, latency_ms, created_at, completed_at)
                  VALUES (:id, :post, :version, 'demo-fixture', 'demo-fixture', 'COMPLETED', 'MEDIUM', 48,
                          'Two items to review before publication: one privacy concern and one tone note. '
                          || 'No credentials or internal hostnames were found.', 2140, :at, :at)
@@ -391,7 +394,7 @@ public class DemoDataSeeder {
     private void insertFinding(JdbcClient jdbc, UUID reviewId, String category, String severity, String title,
                                String excerpt, String explanation, String suggestion, int order) {
         jdbc.sql("""
-                 INSERT INTO ai_finding (id, ai_review_id, category, severity, title, excerpt, explanation,
+                 INSERT INTO ai_finding (id, ai_analysis_id, category, severity, title, excerpt, explanation,
                                          suggestion, sort_order)
                  VALUES (:id, :review, :category, :severity, :title, :excerpt, :explanation, :suggestion, :order)
                  """)

@@ -21,7 +21,7 @@ public class AccessQueryRepository {
     public List<String> permissionCodesFor(UUID userId) {
         return jdbc.sql("""
                         SELECT DISTINCT p.code
-                          FROM role_assignment ra
+                          FROM user_role ra
                           JOIN role_permission rp ON rp.role_id = ra.role_id
                           JOIN permission p ON p.id = rp.permission_id
                          WHERE ra.user_id = :userId
@@ -35,7 +35,7 @@ public class AccessQueryRepository {
     public List<String> roleCodesFor(UUID userId) {
         return jdbc.sql("""
                         SELECT r.code
-                          FROM role_assignment ra
+                          FROM user_role ra
                           JOIN role r ON r.id = ra.role_id
                          WHERE ra.user_id = :userId
                            AND (ra.expires_at IS NULL OR ra.expires_at > now())
@@ -49,7 +49,7 @@ public class AccessQueryRepository {
     public List<UUID> userIdsWithRole(String roleCode) {
         return jdbc.sql("""
                         SELECT ra.user_id
-                          FROM role_assignment ra
+                          FROM user_role ra
                           JOIN role r ON r.id = ra.role_id
                           JOIN app_user u ON u.id = ra.user_id
                          WHERE r.code = :roleCode
@@ -63,7 +63,7 @@ public class AccessQueryRepository {
 
     public void assignRole(UUID assignmentId, UUID userId, String roleCode, UUID grantedBy) {
         jdbc.sql("""
-                 INSERT INTO role_assignment (id, user_id, role_id, scope_type, source, granted_by)
+                 INSERT INTO user_role (id, user_id, role_id, scope_type, source, granted_by)
                  SELECT :id, :userId, r.id, 'GLOBAL', 'MANUAL', :grantedBy FROM role r WHERE r.code = :roleCode
                  ON CONFLICT (user_id, role_id, scope_type) DO NOTHING
                  """)

@@ -144,6 +144,13 @@ ksa:
     digest-time: "09:00"
     digest-timezone: Europe/Istanbul
     max-attempts: 5
+  # First-administrator seed. Off by default, refused under the prod profile, and never carrying a
+  # password in source (ARCHITECTURE.md 14.2).
+  dev-seed:
+    enabled: ${KSA_DEV_SEED_ENABLED:false}
+    admin-username: ${KSA_DEV_SEED_ADMIN_USERNAME:admin}
+    admin-email: ${KSA_DEV_SEED_ADMIN_EMAIL:admin@kron.local}
+    admin-password: ${KSA_DEV_SEED_ADMIN_PASSWORD:}
   ai:
     enabled: ${KSA_AI_ENABLED:false}
     provider: ${KSA_AI_PROVIDER:noop}

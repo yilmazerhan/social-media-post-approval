@@ -4,7 +4,9 @@ import com.kron.socialapproval.access.api.AccessDirectory;
 import com.kron.socialapproval.identity.api.UserDirectory;
 import com.kron.socialapproval.identity.api.UserSummary;
 import com.kron.socialapproval.identity.internal.domain.AppUser;
+import com.kron.socialapproval.identity.internal.domain.Department;
 import com.kron.socialapproval.identity.internal.persistence.AppUserRepository;
+import com.kron.socialapproval.identity.internal.persistence.DepartmentRepository;
 import com.kron.socialapproval.platform.error.ApiException;
 import java.util.Collection;
 import java.util.Comparator;
@@ -23,16 +25,19 @@ import org.springframework.transaction.annotation.Transactional;
 public class UserDirectoryService implements UserDirectory {
 
     private final AppUserRepository users;
+    private final DepartmentRepository departments;
     private final AccessDirectory access;
 
-    public UserDirectoryService(AppUserRepository users, AccessDirectory access) {
+    public UserDirectoryService(AppUserRepository users, DepartmentRepository departments,
+                                AccessDirectory access) {
         this.users = users;
+        this.departments = departments;
         this.access = access;
     }
 
     @Override
     public Optional<UserSummary> find(UUID userId) {
-        return users.findById(userId).map(UserDirectoryService::toSummary);
+        return users.findById(userId).map(this::toSummary);
     }
 
     @Override
@@ -47,7 +52,7 @@ public class UserDirectoryService implements UserDirectory {
             return Map.of();
         }
         return users.findAllByIdIn(userIds).stream()
-                .map(UserDirectoryService::toSummary)
+                .map(this::toSummary)
                 .collect(Collectors.toMap(UserSummary::id, Function.identity()));
     }
 
@@ -58,17 +63,20 @@ public class UserDirectoryService implements UserDirectory {
             return List.of();
         }
         return users.findActiveByIds(ids).stream()
-                .map(UserDirectoryService::toSummary)
+                .map(this::toSummary)
                 .sorted(Comparator.comparing(UserSummary::displayName))
                 .toList();
     }
 
-    static UserSummary toSummary(AppUser user) {
+    UserSummary toSummary(AppUser user) {
+        String departmentName = user.getDepartmentId() == null
+                ? null
+                : departments.findById(user.getDepartmentId()).map(Department::getName).orElse(null);
         return new UserSummary(
                 user.getId(),
                 user.getDisplayName(),
                 user.getEmail(),
-                user.getDepartment(),
+                departmentName,
                 user.getJobTitle(),
                 UserSummary.initialsOf(user.getFirstName(), user.getLastName()));
     }

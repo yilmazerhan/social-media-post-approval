@@ -1,6 +1,6 @@
 # Kron Social Approval — Architecture
 
-**Status:** v1.2 — stack verified; the two hero screens and the vertical slice behind them are built
+**Status:** v1.3 — complete database foundation; the two hero screens run on it
 **Owner:** Platform Engineering
 **Last updated:** 2026-09-04
 **Applies to:** all code in this repository
@@ -457,31 +457,39 @@ blob is not a recovery.
 
 ### 5.1 Principle: two front doors, one user
 
-Entra ID and local accounts are **login mechanisms**, not user types. Both resolve
-to the same `app_user` row, and everything downstream — permissions, approvals,
-audit, notifications — is unaware of how the person signed in.
+Entra ID and local accounts are **login mechanisms**, not user types. Both produce the same
+`app_user` row, and everything downstream — permissions, approvals, audit, notifications — is
+unaware of how the person signed in.
 
 ```
 ┌────────────────────┐        ┌──────────────────────────┐
 │ SAML 2.0 (Entra)   │───┐    │                          │
 └────────────────────┘   ├───►│  AuthenticationResolver  │──► app_user  ──► Session
-┌────────────────────┐   │    │  (link or provision)     │
+┌────────────────────┐   │    │  (match or provision)    │
 │ Local username/pwd │───┘    └──────────────────────────┘
 └────────────────────┘
 ```
 
-The join happens in `identity_link`:
+The user row carries its own sign-in details:
 
 | Column | Meaning |
 |---|---|
-| `provider` | `SAML_ENTRA` \| `LOCAL` |
-| `external_id` | Entra object id (immutable) — for LOCAL, equals the user id |
-| `subject_hint` | NameID / UPN as last seen, for diagnostics only |
+| `auth_provider` | `LOCAL` \| `ENTRA_ID` |
+| `external_identity_id` | The directory's immutable object id. Null for a local account |
+| `password_hash` | Argon2id hash. Null for a directory account — always |
 
-A user may hold several links (e.g. an admin with both an Entra identity and a
-break-glass local account) and the model deliberately allows it. Matching an
-incoming SAML assertion is done on `external_id` **only** — never on email, which
-is mutable and forgeable at the directory level.
+Three database constraints hold the model together, so no code path can bend it:
+
+- `auth_provider` accepts only the two known values.
+- A `LOCAL` account must have a password hash, and anything else must not. An Entra password is the
+  directory's business and is never stored here, not even as a hash.
+- A federated account must carry an `external_identity_id`, and `(auth_provider,
+  external_identity_id)` is unique. Matching an incoming assertion is done on that id **only** —
+  never on email, which is mutable and forgeable at the directory level.
+
+One account therefore has one sign-in route. Somebody who needs both — an administrator wanting a
+break-glass local account alongside their Entra identity — holds two accounts, which is visible in
+the user list rather than hidden inside a link table (ADR 23).
 
 ### 5.2 Entra ID via SAML 2.0
 
@@ -1750,6 +1758,10 @@ content-quality win, not only an accessibility one).
 | 20 | TypeScript 5.9 | TypeScript 7.0 (native compiler) | Codegen and lint toolchains still peer-depend on 5.x; the language surface we use is identical |
 | 21 | Actuator on a separate port | Same port with authentication | A port the ingress does not publish cannot be reached by mistake |
 | 22 | SAML dependency in a default-active Maven profile | Unconditional dependency | OpenSAML is not on Maven Central; the profile lets a runner without the Shibboleth mirror still build, while release builds always include it |
+| 23 | Provider and credential on the user row | A separate `identity_link` table (the v1.0 design) | One sign-in route per account, enforced by database constraints rather than by convention. Somebody needing both routes holds two accounts, which is visible rather than hidden. Restoring multi-identity later means restoring a link table and relaxing two constraints |
+| 24 | `department` as a table, not text on the user row | Free-text department | Routing and reporting need something stable to match on; a typo in a text field silently changes who reviews a post |
+| 25 | Audit and email records never cascade-delete | `ON DELETE CASCADE`, as elsewhere | A governance record outlives its subject. `audit_log` uses `RESTRICT` on its actor and denormalises the display name; `email_log` detaches its recipient with `SET NULL` |
+| 26 | One `approval_action` table for decisions and workflow events | A decisions table plus a separate event log | The review timeline is one sequence; splitting it would mean merging two tables on every read to answer "what happened to this post" |
 
 ---
 
@@ -2216,3 +2228,137 @@ Two defects were found this way and fixed rather than documented around: authori
 being reported as 500s because the catch-all handler swallowed `AccessDeniedException`, and the page
 was declaring `lang="tr"` while carrying English copy, which made the browser render "SERVICE LEVEL"
 as "SERVİCE LEVEL" — the Turkish dotted-i rule that section 17.3 warns about, caught in a screenshot.
+
+---
+
+## Appendix C — Schema inventory
+
+The authoritative list of what is in the database, what each table is for, and — the part that is
+easy to get wrong and expensive to discover later — what happens to its rows when something they
+reference is deleted.
+
+### C.1 Migrations
+
+| Migration | Contents |
+|---|---|
+| `V1__baseline` | Extensions, the settings table, the Flyway baseline |
+| `V2__platform_jobs` | ShedLock's lock table and the job run ledger |
+| `V3__identity_and_access` | Users, roles, permissions, the permission catalogue and the three system roles |
+| `V4__content_and_workflow` | Posts, versions, attachments, approvals, comments, AI analysis, notifications, channels |
+| `V5__database_foundation` | Departments and groups, the identity restructure, approval rules, SLA records, audit log, email outbox, retention policies, system settings, and the indexes the read paths depend on |
+
+Forward-only. V5 supersedes V3's identity model rather than editing it — the rule in §4.4 exists
+precisely so that a schema history stays honest about what a database has actually been through.
+
+### C.2 Tables
+
+Cascade column: **cascade** means the row dies with its parent, **restrict** means the parent cannot
+be deleted while this row exists, **detach** means the reference is nulled and the row survives.
+
+| Table | Entity | Purpose | On parent delete |
+|---|---|---|---|
+| `app_user` | User | One person, one sign-in route, one credential (or none) | — |
+| `department` | Department | Organisational unit; parent is self-referencing | detach (parent, manager) |
+| `app_group` | Group | A named set of people, static or directory-synced | — |
+| `user_group` | UserGroup | Membership | cascade (both sides) |
+| `role` | Role | A named bundle of permissions; system roles cannot be deleted | — |
+| `permission` | Permission | One thing a holder may do, e.g. `post:submit` | — |
+| `role_permission` | — | Which permissions a role grants | cascade |
+| `user_role` | UserRole | Which roles a user holds, optionally scoped | cascade |
+| `login_attempt` | — | Every sign-in attempt, for lockout and brute-force reporting | detach |
+| `channel` | — | Publication target and its content constraints | — |
+| `post` | Post | The content and its position in the lifecycle | — |
+| `post_version` | PostVersion | Immutable content snapshot with its attachment manifest | cascade |
+| `attachment` | Attachment | Media metadata; the bytes live in object storage | cascade |
+| `approval_request` | ApprovalRequest | One review round over one exact version | cascade |
+| `approval_step` | — | One named person's part in a round | cascade |
+| `approval_action` | ApprovalAction | Every decision and workflow event on a round | cascade |
+| `approval_rule` | ApprovalRule | Declarative routing: who reviews what, in what mode, by when | cascade (match), restrict (target) |
+| `sla_record` | SLARecord | The deadline a round was given and what became of it | cascade |
+| `post_comment` | Comment | The review discussion | cascade |
+| `ai_analysis` | AIAnalysis | One advisory content check: provider, model, status, risk | cascade (post), detach (version) |
+| `ai_finding` | AIFinding | One thing a check flagged, and who acknowledged it | cascade |
+| `notification` | Notification | The in-app notification centre | cascade |
+| `email_log` | EmailLog | The transactional outbox: queued, sent, failed | **detach** |
+| `audit_log` | AuditLog | Append-only record of who did what | **restrict** |
+| `retention_policy` | RetentionPolicy | What is kept, for how long, and what happens then | detach |
+| `system_setting` | SystemSetting | Administrator-tunable runtime configuration | detach |
+| `job_run` | — | One row per scheduled job execution | — |
+| `shedlock` | — | Cluster-safe mutual exclusion for jobs | — |
+
+Two deliberate asymmetries. Content cascades freely, because deleting a post should take its
+versions, attachments, approvals, actions and findings with it — otherwise a retention policy cannot
+run at all. Governance records never do: an `audit_log` row blocks deletion of its actor and carries
+a denormalised display name so it still reads correctly after a user is anonymised, and an
+`email_log` row outlives its recipient with the reference nulled.
+
+### C.3 Indexes that exist for a reason
+
+| Index | Answers |
+|---|---|
+| `app_user_email_key` (unique, `lower(email)`) | Is this address already taken? Case-insensitively |
+| `app_user_identity_key` (unique, provider + external id) | Which account is this assertion for? |
+| `app_user_status_idx`, `app_user_auth_provider_idx` | Who is active; who signs in which way |
+| `app_user_external_identity_idx` | Directory lookups during sign-in and sync |
+| `app_user_created_at_idx` | Joiner reports and admin listings |
+| `post_status_idx`, `post_author_idx` | The two ways a post list is ever filtered |
+| `post_submitted_at_idx`, `post_created_at_idx` | Throughput reporting over a date range |
+| `post_title_trgm_idx` | Fuzzy title search |
+| `approval_step_assignee_idx` / `_open_idx` | "What is waiting for me" — the approver's queue |
+| `approval_request_open_idx` (partial, `due_at`) | The SLA scan: only rows that can still breach |
+| `email_log_pending_idx` (partial) | The dispatcher's claim query |
+| `audit_log_entity_idx`, `_actor_idx`, `_action_idx`, `_payload_idx` | The four ways an audit trail is read |
+
+Partial indexes throughout: a scan for overdue reviews has no business reading rows that were
+decided last March.
+
+### C.4 Seed data
+
+Migrations seed **reference data only** — never an account, and never a credential.
+
+| Seeded in | What |
+|---|---|
+| `V3` | The permission catalogue and the three system roles: `EMPLOYEE`, `APPROVER`, `ADMIN`, each with its permission set |
+| `V5` | Five departments, two groups, two approval rules (a default 24-hour route and a 4-hour urgent route), four retention policies, six system settings |
+
+`ADMIN` is not a bypass flag anywhere in the code. It is a role that happens to hold every
+permission, which is what keeps administrative action auditable and revocable like any other.
+
+### C.5 Creating the first administrator
+
+An empty database has no accounts, which is correct and also unusable. `DevAdminSeeder` closes that
+gap, under conditions that keep it from becoming the default-credentials hole this pattern usually
+is:
+
+1. It runs only when `ksa.dev-seed.enabled` is set. The default is off.
+2. It refuses to run when the `prod` profile is active, whatever the configuration says.
+3. It does nothing if any administrator already exists, so a restart cannot resurrect a known account.
+4. **No password appears in source.** Either an operator supplies one through
+   `ksa.dev-seed.admin-password`, or one is generated from 192 bits of `SecureRandom`, printed once
+   to the log, and the account is flagged must-change.
+
+In production the first administrator is created by an operator, through the same administration
+path as any other account. There is no seeded production credential anywhere in this repository.
+
+### C.6 Verification performed
+
+| Check | Result |
+|---|---|
+| Migrate from an empty schema | All five migrations apply cleanly; 29 tables |
+| Entra user without a password | Accepted |
+| Entra user carrying a password | Refused — `app_user_local_password_check` |
+| Local user without a password | Refused — `app_user_local_password_check` |
+| Entra user without an external identity | Refused — `app_user_external_identity_check` |
+| Duplicate email (different case) | Refused — `app_user_email_key` |
+| Duplicate (provider, external identity) | Refused — `app_user_identity_key` |
+| Unknown provider value | Refused — `app_user_auth_provider_check` |
+| Delete a post | Versions, approvals, actions and findings go with it |
+| Delete a user with audit history | Refused by `audit_log` |
+| Development administrator seed | Generated a one-time password, printed it once, set must-change, and signed in successfully |
+| `mvn verify` | 25 tests pass |
+| Playwright | 10 tests pass against the restructured schema |
+
+One defect was found this way and fixed rather than documented around: `approval_request` and
+`approval_action` referenced `post_version` with the default `NO ACTION`, which broke the cascade
+chain from `post` and made a post impossible to delete — and therefore made the abandoned-drafts
+retention policy impossible to run.

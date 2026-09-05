@@ -17,6 +17,11 @@ springdoc:
   swagger-ui:
     enabled: false
 
+ksa:
+  dev-seed:
+    # Belt and braces: the seeder also refuses to run under this profile.
+    enabled: false
+
 logging:
   level:
     root: INFO

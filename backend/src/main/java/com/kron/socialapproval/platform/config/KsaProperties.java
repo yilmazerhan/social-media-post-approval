@@ -43,6 +43,9 @@ public class KsaProperties {
     @Valid @NotNull
     private Ai ai = new Ai();
 
+    @Valid @NotNull
+    private DevSeed devSeed = new DevSeed();
+
     public static class Auth {
         /** Local username/password authentication. */
         @Valid @NotNull
@@ -211,6 +214,32 @@ public class KsaProperties {
         public int getHourlyRequestCap() { return hourlyRequestCap; }
         public void setHourlyRequestCap(int v) { this.hourlyRequestCap = v; }
     }
+
+    /**
+     * The first-administrator seed. Off unless switched on, refused under the production profile,
+     * and never carrying a password in source: one is supplied here or generated and printed once.
+     */
+    public static class DevSeed {
+        private boolean enabled = false;
+        @NotBlank
+        private String adminUsername = "admin";
+        @NotBlank
+        private String adminEmail = "admin@kron.local";
+        /** Leave empty to have a one-time password generated and logged. */
+        private String adminPassword;
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+        public String getAdminUsername() { return adminUsername; }
+        public void setAdminUsername(String v) { this.adminUsername = v; }
+        public String getAdminEmail() { return adminEmail; }
+        public void setAdminEmail(String v) { this.adminEmail = v; }
+        public String getAdminPassword() { return adminPassword; }
+        public void setAdminPassword(String v) { this.adminPassword = v; }
+    }
+
+    public DevSeed getDevSeed() { return devSeed; }
+    public void setDevSeed(DevSeed devSeed) { this.devSeed = devSeed; }
 
     public String getBaseUrl() { return baseUrl; }
     public void setBaseUrl(String baseUrl) { this.baseUrl = baseUrl; }

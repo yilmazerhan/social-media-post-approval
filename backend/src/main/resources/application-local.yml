@@ -29,6 +29,9 @@ logging:
     com.kron.socialapproval: DEBUG
 
 ksa:
+  dev-seed:
+    # A local environment needs somebody who can sign in; the password is generated and logged once.
+    enabled: true
   auth:
     local:
       enabled: true

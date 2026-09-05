@@ -18,7 +18,7 @@ public class AiFinding {
     @Id
     private UUID id;
 
-    @Column(name = "ai_review_id", nullable = false)
+    @Column(name = "ai_analysis_id", nullable = false)
     private UUID aiReviewId;
 
     @Column(nullable = false)

@@ -15,14 +15,14 @@ import com.kron.socialapproval.platform.error.ApiException;
 import com.kron.socialapproval.platform.security.KsaPrincipal;
 import com.kron.socialapproval.platform.support.Ids;
 import com.kron.socialapproval.workflow.api.ApprovalDtos;
-import com.kron.socialapproval.workflow.internal.domain.ApprovalDecision;
+import com.kron.socialapproval.workflow.internal.domain.ApprovalAction;
 import com.kron.socialapproval.workflow.internal.domain.ApprovalMode;
 import com.kron.socialapproval.workflow.internal.domain.ApprovalRequest;
 import com.kron.socialapproval.workflow.internal.domain.ApprovalStatus;
 import com.kron.socialapproval.workflow.internal.domain.ApprovalStep;
 import com.kron.socialapproval.workflow.internal.domain.DecisionType;
 import com.kron.socialapproval.workflow.internal.domain.StepStatus;
-import com.kron.socialapproval.workflow.internal.persistence.ApprovalDecisionRepository;
+import com.kron.socialapproval.workflow.internal.persistence.ApprovalActionRepository;
 import com.kron.socialapproval.workflow.internal.persistence.ApprovalRequestRepository;
 import com.kron.socialapproval.workflow.internal.persistence.ApprovalStepRepository;
 import java.time.Clock;
@@ -54,7 +54,7 @@ public class ApprovalService {
 
     private final ApprovalRequestRepository requests;
     private final ApprovalStepRepository steps;
-    private final ApprovalDecisionRepository decisions;
+    private final ApprovalActionRepository actions;
     private final PostContentQuery content;
     private final PostLifecycle postLifecycle;
     private final UserDirectory users;
@@ -65,13 +65,13 @@ public class ApprovalService {
     private final Clock clock;
 
     public ApprovalService(ApprovalRequestRepository requests, ApprovalStepRepository steps,
-                           ApprovalDecisionRepository decisions, PostContentQuery content,
+                           ApprovalActionRepository actions, PostContentQuery content,
                            PostLifecycle postLifecycle, UserDirectory users, AiReviewQuery aiReviews,
                            CommentQuery comments, NotificationPublisher notifications,
                            KsaProperties properties, Clock clock) {
         this.requests = requests;
         this.steps = steps;
-        this.decisions = decisions;
+        this.actions = actions;
         this.content = content;
         this.postLifecycle = postLifecycle;
         this.users = users;
@@ -101,17 +101,18 @@ public class ApprovalService {
 
         Instant now = clock.instant();
         List<UUID> requestIds = filtered.stream().map(ApprovalRequest::getId).toList();
-        Map<UUID, List<ApprovalDecision>> decisionsByRequest = requestIds.isEmpty()
+        Map<UUID, List<ApprovalAction>> actionsByRequest = requestIds.isEmpty()
                 ? Map.of()
-                : decisions.findByApprovalRequestIdInOrderByDecidedAtAsc(requestIds).stream()
-                .collect(java.util.stream.Collectors.groupingBy(ApprovalDecision::getApprovalRequestId));
+                : actions.findByApprovalRequestIdInOrderByPerformedAtAsc(requestIds).stream()
+                .collect(java.util.stream.Collectors.groupingBy(ApprovalAction::getApprovalRequestId));
 
         return filtered.stream()
                 .map(request -> {
                     PostDetailDto post = content.detail(request.getPostId());
                     Optional<AiReviewDto> ai = aiReviews.forVersion(request.getPostVersionId());
-                    boolean decidedByMe = decisionsByRequest.getOrDefault(request.getId(), List.of()).stream()
-                            .anyMatch(decision -> decision.getDecidedBy().equals(actor.userId()));
+                    boolean decidedByMe = actionsByRequest.getOrDefault(request.getId(), List.of()).stream()
+                            .filter(ApprovalAction::isDecision)
+                            .anyMatch(action -> action.getActorId().equals(actor.userId()));
                     return new ApprovalDtos.ApprovalSummary(
                             request.getId(),
                             post.id(),
@@ -148,16 +149,17 @@ public class ApprovalService {
         PostDetailDto post = content.detail(request.getPostId());
         PostVersionDto version = content.version(request.getPostVersionId());
         List<ApprovalStep> requestSteps = steps.findByApprovalRequestIdOrderByStepNoAsc(approvalId);
-        List<ApprovalDecision> requestDecisions = decisions.findByApprovalRequestIdOrderByDecidedAtAsc(approvalId);
+        List<ApprovalAction> requestDecisions = actions.findByApprovalRequestIdOrderByPerformedAtAsc(approvalId)
+                .stream().filter(ApprovalAction::isDecision).toList();
 
         Map<UUID, UserSummary> people = users.findAll(java.util.stream.Stream.concat(
                         requestSteps.stream().map(ApprovalStep::getAssigneeId),
-                        requestDecisions.stream().map(ApprovalDecision::getDecidedBy))
+                        requestDecisions.stream().map(ApprovalAction::getActorId))
                 .distinct().toList());
 
         boolean isAssigned = requestSteps.stream().anyMatch(step -> step.getAssigneeId().equals(actor.userId()));
         boolean alreadyDecided = requestDecisions.stream()
-                .anyMatch(decision -> decision.getDecidedBy().equals(actor.userId()));
+                .anyMatch(action -> action.getActorId().equals(actor.userId()));
         boolean isAuthor = post.author() != null && post.author().id().equals(actor.userId());
 
         ApprovalDtos.ViewerContext viewer = new ApprovalDtos.ViewerContext(
@@ -183,13 +185,13 @@ public class ApprovalService {
                                 step.getAssigneeId().equals(actor.userId())))
                         .toList(),
                 requestDecisions.stream()
-                        .map(decision -> new ApprovalDtos.Decision(
-                                decision.getId(),
-                                people.get(decision.getDecidedBy()),
-                                decision.getDecision().name(),
-                                decision.getComment(),
+                        .map(action -> new ApprovalDtos.Decision(
+                                action.getId(),
+                                people.get(action.getActorId()),
+                                action.getAction().name(),
+                                action.getNote(),
                                 post.versionNo(),
-                                decision.getDecidedAt()))
+                                action.getPerformedAt()))
                         .toList(),
                 timelineFor(request.getPostId()),
                 aiReviews.forVersion(request.getPostVersionId())
@@ -224,16 +226,18 @@ public class ApprovalService {
         }
         List<UUID> roundIds = rounds.stream().map(ApprovalRequest::getId).toList();
         if (!roundIds.isEmpty()) {
-            List<ApprovalDecision> all = decisions.findByApprovalRequestIdInOrderByDecidedAtAsc(roundIds);
+            List<ApprovalAction> all = actions.findByApprovalRequestIdInOrderByPerformedAtAsc(roundIds).stream()
+                    .filter(ApprovalAction::isDecision)
+                    .toList();
             Map<UUID, UserSummary> people = users.findAll(
-                    all.stream().map(ApprovalDecision::getDecidedBy).distinct().toList());
-            for (ApprovalDecision decision : all) {
+                    all.stream().map(ApprovalAction::getActorId).distinct().toList());
+            for (ApprovalAction action : all) {
                 entries.add(new ApprovalDtos.TimelineEntry(
-                        decision.getDecidedAt(),
-                        people.get(decision.getDecidedBy()),
-                        decision.getDecision().name(),
-                        versionNoByRequest.get(decision.getApprovalRequestId()),
-                        decision.getComment()));
+                        action.getPerformedAt(),
+                        people.get(action.getActorId()),
+                        action.getAction().name(),
+                        versionNoByRequest.get(action.getApprovalRequestId()),
+                        action.getNote()));
             }
         }
 
@@ -298,7 +302,7 @@ public class ApprovalService {
                             : "Explain what needs to change before this can be approved.");
         }
 
-        decisions.save(ApprovalDecision.record(Ids.newId(), approvalId, step.getId(), version.id(),
+        actions.save(ApprovalAction.decision(Ids.newId(), approvalId, step.getId(), version.id(),
                 actor.userId(), decision, comment, command.ipAddress(), now));
         step.complete();
 
@@ -326,8 +330,9 @@ public class ApprovalService {
             return;
         }
 
-        long approvals = decisions.findByApprovalRequestIdOrderByDecidedAtAsc(request.getId()).stream()
-                .filter(recorded -> recorded.getDecision() == DecisionType.APPROVE)
+        long approvals = actions.findByApprovalRequestIdOrderByPerformedAtAsc(request.getId()).stream()
+                .filter(ApprovalAction::isDecision)
+                .filter(recorded -> recorded.asDecision() == DecisionType.APPROVE)
                 .count();
         boolean satisfied = request.getMode() == ApprovalMode.ALL
                 ? approvals >= request.getRequiredApprovals()
