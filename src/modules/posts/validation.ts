@@ -39,3 +39,8 @@ export const submitPostSchema = z.object({
   lockVersion: z.number().int().min(0),
 });
 export type SubmitPostInput = z.infer<typeof submitPostSchema>;
+
+export const cancelPostSchema = z.object({
+  lockVersion: z.number().int().min(0),
+});
+export type CancelPostInput = z.infer<typeof cancelPostSchema>;

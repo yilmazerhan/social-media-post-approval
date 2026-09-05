@@ -20,3 +20,23 @@ export {
   type RoutablePost,
 } from "./route-resolution";
 export { assertLegalTransition } from "./state-machine";
+export {
+  startReview,
+  approvePost,
+  rejectPost,
+  requestChanges,
+  loadApprovalActionResource,
+  type StartReviewResult,
+  type ApproveResult,
+  type RequestChangesResult,
+  type RejectResult,
+  type ApprovalActionResource,
+} from "./decisions";
+export {
+  approveSchema,
+  requestChangesSchema,
+  rejectSchema,
+  type ApproveInput,
+  type RequestChangesInput,
+  type RejectInput,
+} from "./validation";

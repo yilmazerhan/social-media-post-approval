@@ -23,6 +23,7 @@ export {
   getReadiness,
 } from "./service";
 export { submitPost, type SubmitResult } from "./submit";
+export { cancelPost, type CancelResult } from "./cancel";
 export {
   getPostDetail,
   listVersions,
@@ -49,10 +50,12 @@ export {
   updatePostSchema,
   autosavePostSchema,
   submitPostSchema,
+  cancelPostSchema,
   type CreatePostInput,
   type UpdatePostInput,
   type AutosavePostInput,
   type SubmitPostInput,
+  type CancelPostInput,
 } from "./validation";
 export {
   tiptapDocumentSchema,

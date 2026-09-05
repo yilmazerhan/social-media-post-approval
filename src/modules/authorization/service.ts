@@ -11,6 +11,7 @@ import type { AuthorizedUser, PolicyResource } from "./types";
 import {
   checkApprovalAction,
   checkApprovalRead,
+  checkCancelPost,
   checkOwnedPost,
 } from "./policies";
 import { ForbiddenError } from "./errors";
@@ -20,7 +21,6 @@ const OWNED_POST_PERMISSIONS = new Set<PermissionKey>([
   "POST_EDIT_OWN",
   "POST_SUBMIT",
   "POST_DELETE_OWN",
-  "POST_CANCEL",
 ]);
 const APPROVAL_ACTION_PERMISSIONS = new Set<PermissionKey>([
   "POST_APPROVE",
@@ -37,6 +37,9 @@ export function can(
 
   if (OWNED_POST_PERMISSIONS.has(permission)) {
     return checkOwnedPost(user, resource);
+  }
+  if (permission === "POST_CANCEL") {
+    return checkCancelPost(user, resource);
   }
   if (APPROVAL_ACTION_PERMISSIONS.has(permission)) {
     return checkApprovalAction(user, resource);

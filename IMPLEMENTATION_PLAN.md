@@ -4,7 +4,7 @@ The build order, what "done" means at each step, and where we currently are.
 The 28 phases from the master specification are grouped into seven milestones so
 progress is reviewable in meaningful chunks rather than one uncontrolled change.
 
-**Current status: Phase 10 complete — proceeding directly to Phase 11 per the user's standing instruction to work through all remaining phases.**
+**Current status: Phase 11 complete — proceeding directly to Phase 12 per the user's standing instruction to work through all remaining phases.**
 
 ---
 
@@ -771,13 +771,67 @@ as a real, deliberate gap rather than silently dropped).
 
 ## Milestone 3 — Approval (Phases 11–15)
 
-### Phase 11 · Approval workflow
+### Phase 11 · Approval workflow — **complete**
 
-The state machine, transactional transitions, `ApprovalAction` writes,
-optimistic locking, `SELECT … FOR UPDATE`, idempotency keys.
-**Exit**: every legal transition passes and every illegal one is refused with
-`INVALID_TRANSITION`; a concurrent double-approve test leaves exactly one
-approval.
+Built the four decision transitions on top of the transition table
+state-machine.ts already carried — `approvals/decisions.ts`'s `startReview`,
+`approvePost`, `requestChanges`, `rejectPost` — following exactly
+`submit.ts`'s transactional shape: `SELECT … FOR UPDATE` on the post row,
+re-check `lockVersion` (else `409 STALE_RESOURCE`), re-check that the
+decision's `postVersionId` still matches `currentVersionId` (else
+`409 ALREADY_DECIDED` — API.md §2's own wording), run
+`assertLegalTransition`, complete the open `ApprovalAssignment`, write the
+`ApprovalAction`, `writeAudit`. `start-review` is the one API.md documents
+as idempotent ("`SUBMITTED → IN_REVIEW`; idempotent"): a repeat call while
+the post is already `IN_REVIEW` under its own still-`IN_PROGRESS`
+assignment returns the existing result rather than throwing
+`INVALID_TRANSITION`. `POST_CANCEL` (`posts/cancel.ts`, since API.md places
+`/:id/cancel` under `/api/v1/posts`, not `/api/v1/approvals`) is legal only
+from `DRAFT` or `SUBMITTED` per state-machine.ts's own `CANCEL` rows, and
+also completes any open assignment; a never-submitted `DRAFT` has no
+`PostVersion` yet, so unlike every other decision here it writes no
+`ApprovalAction` row (there's nothing for that row's mandatory
+`postVersionId` to name) — only the audit entry.
+
+Two real gaps, both resolved by reading rather than guessing.
+`COMMENT_REQUIRED` (API.md §3's own example: `request-changes` without a
+comment) needed a distinct error path from generic `VALIDATION_FAILED`
+since it names a `field` (`comment` for request-changes, `reason` for
+reject — DATABASE.md §5's `CHECK` constraint enforces both as one
+underlying `ApprovalAction.comment` column) the way `NotReadyError`/`FileRejectedError`
+already do for their own codes; `handler.ts` gained a matching
+`CommentRequiredError`, and `comment`/`reason` stay optional at the Zod
+layer precisely so a blank one reaches this check instead of the wrong
+code. Second: API.md's cancel row says "creator or admin," but
+`checkOwnedPost` (Phase 5) only ever checks `creatorId === user.id` — true
+for every other owned-post permission, wrong here. Rather than bend the
+shared policy every other permission relies on, `POST_CANCEL` got its own
+`checkCancelPost` in `authorization/policies.ts`, reusing `POST_READ_ALL`
+as the admin-reach signal exactly the way `checkApprovalRead` already
+does, so the one permission that needed different behaviour got it
+without changing the other four. What's still a documented, deferred gap:
+API.md's general `Idempotency-Key` header (response caching for a repeat
+request with the same key) has no backing table anywhere in DATABASE.md —
+only `start-review`'s specific, narrower idempotency (its own documented
+behaviour) is built; a full idempotency-key store isn't this phase's exit
+criterion and isn't invented here. `assign`/`reassign` and the queue/review
+screens are Phase 12–14, not this one.
+
+- **Exit — verified**: `tests/integration/approvals-decisions.test.ts`
+  drives every legal transition (`SUBMITTED → IN_REVIEW → APPROVED`,
+  `→ CHANGES_REQUESTED`, `→ REJECTED`, `DRAFT/SUBMITTED → CANCELLED`) and
+  every illegal one named in this phase's exit criterion: approving before
+  `start-review`, a stale `postVersionId` (`ALREADY_DECIDED`), a stale
+  `lockVersion` (`STALE_RESOURCE`), a missing mandatory comment/reason
+  (`COMMENT_REQUIRED`), cancelling an `IN_REVIEW` post. The named exit
+  criterion itself — two concurrent `approvePost` calls racing the same
+  post via `Promise.allSettled`, relying on the transaction's row lock to
+  serialize them — leaves exactly one `ApprovalAction` row and the post
+  `APPROVED`; the loser gets a 409. 14 new vitest tests bring the suite to
+  233 vitest + 18 Playwright tests, all green repeatably; `lint`,
+  `typecheck`, `format:check` and `build` are clean. No new Playwright spec
+  this phase — there is no new screen yet to drive; Phase 14 exercises
+  these endpoints through the real Approval Review UI.
 
 ### Phase 12 · Approval assignment
 

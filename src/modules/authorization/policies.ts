@@ -31,6 +31,16 @@ export function checkOwnedPost(
   return resource.creatorId === user.id;
 }
 
+/** `POST_CANCEL`'s own rule (API.md: "creator or admin") — `POST_READ_ALL` is the same admin-reach signal `checkApprovalRead` already uses. */
+export function checkCancelPost(
+  user: AuthorizedUser,
+  resource: PolicyResource | undefined,
+): boolean {
+  if (!resource || resource.kind !== "owned-post") return false;
+  if (resource.creatorId === user.id) return true;
+  return user.permissions.has("POST_READ_ALL");
+}
+
 export function checkApprovalAction(
   user: AuthorizedUser,
   resource: PolicyResource | undefined,

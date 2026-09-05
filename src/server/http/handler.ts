@@ -64,6 +64,16 @@ export class FileRejectedError extends Error {
   }
 }
 
+/** A decision body missing its mandatory comment (request-changes) or reason (reject) — API.md §3's `COMMENT_REQUIRED` example. */
+export class CommentRequiredError extends Error {
+  constructor(
+    message: string,
+    public readonly field: string,
+  ) {
+    super(message);
+  }
+}
+
 export interface RouteContext {
   params: Promise<Record<string, string>>;
 }
@@ -239,6 +249,11 @@ export function protectedHandler<TInput = undefined, TResource = undefined>(
               ? 415
               : 422;
         return jsonError(status, err.code, err.message);
+      }
+      if (err instanceof CommentRequiredError) {
+        return jsonError(422, "COMMENT_REQUIRED", err.message, [
+          { field: err.field, message: "Required." },
+        ]);
       }
       logger.error({ err }, "Unhandled error in protected handler");
       return jsonError(500, "INTERNAL_ERROR", "Something went wrong.");
