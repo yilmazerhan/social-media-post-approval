@@ -1,0 +1,40 @@
+# dependencies
+node_modules/
+.npm/
+
+# next.js
+.next/
+out/
+next-env.d.ts
+
+# build / test output
+dist/
+build/
+coverage/
+playwright-report/
+test-results/
+.vitest/
+
+# environment & secrets — never commit these
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+certs/
+
+# local data
+data/
+uploads/
+*.log
+
+# prisma
+prisma/*.db
+prisma/*.db-journal
+
+# editors / os
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
