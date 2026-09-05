@@ -4,7 +4,7 @@ The build order, what "done" means at each step, and where we currently are.
 The 28 phases from the master specification are grouped into seven milestones so
 progress is reviewable in meaningful chunks rather than one uncontrolled change.
 
-**Current status: Phase 6 complete — awaiting the go-ahead to start Phase 7.**
+**Current status: Phase 7 complete — awaiting the go-ahead to start Phase 8.**
 
 ---
 
@@ -394,10 +394,97 @@ env override scoped to that one webServer process.
   passing repeatably; `lint`, `typecheck`, `format:check` and `build` are
   all still clean.
 
-### Phase 7 · Dashboards
+### Phase 7 · Dashboards — **complete**
 
-Employee, approver and admin dashboards with real queries and skeleton loading.
-**Exit**: each role sees its own dashboard; counts match the database.
+Delivered the three role-aware dashboards `UI_UX_SPEC.md` §6 specifies,
+chosen the same way the shell already picks nav items — by granted
+permission, never a raw role name — in `src/app/(app)/dashboard/page.tsx`:
+any administration-category permission gets the admin view, `APPROVAL_READ`
+gets the approver view, everyone else gets the employee view.
+
+The read-only aggregate queries live in the module each one is really
+about, not a new `dashboard` module — `ARCHITECTURE.md`'s module list
+doesn't have one, and its §3 is explicit that "Server Components read
+through the same module services (not raw Prisma)". `posts` gained
+`getEmployeeDashboard` (per-status counts, `hasAnyPosts` for the empty
+state, and a recent-activity feed over `ApprovalAction`) and
+`getContentVolumeSeries` (versions-submitted-per-day, bucketed in JS);
+`approvals` gained `getApproverDashboard` (pending/due-soon/overdue/
+recently-completed, scoped to the caller's own assignments or their
+group's, plus an SLA-compliance rate) and `getSystemApprovalStats`
+(the same shape system-wide, plus average approval time); `users` gained
+`getUserStats`. "Due soon" and "overdue" read the assignment's own
+`warningAt`/`dueAt` columns rather than an ad-hoc threshold — the SLA
+module (Phase 11/12) owns computing those, Phase 7 just reads them.
+Admin's four health tiles (database/storage/worker/email) are a new
+`src/server/health.ts` instead — infrastructure-layer liveness pings, not
+a domain module, and explicitly not the production `/api/health`
+container check (Phase 27): a `SELECT 1`, an `fs.access` on
+`STORAGE_PATH`, and `BackgroundJob`/`EmailLog` failure counts.
+
+New design-system pieces: `Card` and `Skeleton` (shadcn primitives Phase 6
+didn't need yet), and app-level `StatCard`, `HealthTile`,
+`ContentVolumeSparkline`, and `ActivityItem` — the last exports an
+`ACTION_LABELS` map for `ApprovalActionType` that Phase 10's post-details
+activity timeline will reuse rather than re-deriving the same wording.
+The sparkline is deliberately a plain div bar-chart with a text summary,
+not a charting library — that choice, and the "a chart always comes with
+a data table" rule, belong to the Reports phase (14/15), which renders
+this same kind of series at full detail. A `/posts/[id]` `ComingSoon`
+placeholder was added so the activity feed's links to a specific post
+resolve to something honest instead of a 404 (Phase 10 builds the real
+page). `/` now redirects a signed-in visitor straight to `/dashboard` —
+the redirect Phase 6's retrospective flagged as its natural next step —
+while an anonymous visitor still sees Phase 2's placeholder. `loading.tsx`
+(a skeleton matching the stat-card grid) and `error.tsx` route boundaries
+cover the dashboard segment per `UI_UX_SPEC.md` §7.
+
+Two real bugs surfaced during this phase, both fixed before landing: a
+`dueSoon` query built its `where` by spreading the "assigned to me" filter
+(itself an `OR`) and then adding a second top-level `OR` for the due-date
+condition — the second silently overwrote the first, so the query would
+have quietly ignored the assignee filter entirely; caught in review and
+rewritten as an explicit `AND` of both conditions. Second, adding
+`dashboard.spec.ts` alongside the existing `shell.spec.ts` reintroduced
+(worse) the exact password race Phase 6 already solved once with
+`mode: "serial"` — that only serializes within one file, and two files
+each independently reseeding in their own `beforeAll` raced across
+Playwright's worker pool. Fixed properly this time with a Playwright
+`globalSetup` (`tests/e2e/support/global-setup.ts`) that seeds and resets
+login attempts exactly once for the whole run, and a shared
+`support/demo-accounts.ts` helper both spec files import instead of each
+keeping its own copy. That fix then exposed a second, real one: the two
+files' combined login count (11) exceeded `RATE_LIMIT_AUTH_MAX`
+(10/15 min) — which counts by IP as well as by email, and every e2e login
+comes from the same loopback address — so the suite started tripping its
+own rate limit. Fixed the same way the CSRF port mismatch was fixed in
+Phase 6: an env override scoped to the e2e `webServer` process only, with
+the production default (the real control against credential stuffing)
+untouched.
+
+Testing approach for the two flavors of query this phase added: functions
+scoped to a specific user or approver (`getEmployeeDashboard`,
+`getApproverDashboard`) are asserted with exact expected counts, since
+nothing else in the database can affect them. System-wide aggregates
+(`getSystemApprovalStats`, `getUserStats`, `getContentVolumeSeries`) are
+asserted as a _delta_ across a known set of fixture rows instead, because
+`tests/integration/seed-idempotency.test.ts` seeds real rows into the same
+test database and file execution order isn't guaranteed —
+`getSystemApprovalStats`'s average-approval-time arithmetic is additionally
+cross-checked against an independently written query over whatever the
+database holds at that moment, rather than a fixed expected number.
+
+- **Exit — verified**: `tests/e2e/dashboard.spec.ts` logs in as each seeded
+  demo account and checks its dashboard against the real seed data —
+  John's one card reading "1" pending approval, Jane's due-soon/overdue/
+  recently-completed counts and "No decisions with a due date" SLA copy,
+  and Admin's "3"/"3" user counts, "3 posts submitted in the last 14 days",
+  "3h 0m" average approval time, and all four health tiles reporting
+  Healthy — literally the "counts match the database" exit criterion, not
+  just a shape check. 8 new component unit tests plus 9 new integration
+  tests (against real Postgres, fixtures created and torn down per test)
+  bring the suite to 136 vitest + 12 Playwright tests, all green
+  repeatably; `lint`, `typecheck`, `format:check` and `build` are clean.
 
 ### Phase 8 · Post Editor (hero screen A)
 

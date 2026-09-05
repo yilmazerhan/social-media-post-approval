@@ -1,61 +1,12 @@
-import { spawnSync } from "node:child_process";
-import path from "node:path";
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { readSeededPassword, login } from "./support/demo-accounts";
 
 /**
  * UI_UX_SPEC.md §3's application shell, exercised for all three roles —
- * Phase 6's exit criterion. Demo accounts come from `db:seed` (their
- * password is regenerated per run and only ever printed to stdout, so this
- * spawns it once and parses the password out, exactly like
- * tests/integration/seed-idempotency.test.ts does for the same reason).
- * Both scripts run via tsx as subprocesses rather than importing
- * @/server/db directly — Playwright's own module loader can't handle the
- * generated Prisma client's ESM output the way tsx/Next/vitest do.
+ * Phase 6's exit criterion. Demo account setup lives in
+ * ./support/demo-accounts.ts, shared with dashboard.spec.ts.
  */
-
-const tsxBin = path.resolve(__dirname, "../../node_modules/.bin/tsx");
-const seedEntry = path.resolve(__dirname, "../../prisma/seed.ts");
-const resetLoginAttemptsEntry = path.resolve(
-  __dirname,
-  "../../prisma/reset-demo-login-attempts.ts",
-);
-
-function seedDemoAccounts(): string {
-  const result = spawnSync(tsxBin, [seedEntry], {
-    env: process.env,
-    encoding: "utf8",
-    timeout: 60_000,
-  });
-  if (result.status !== 0) {
-    throw new Error(`db:seed failed: ${result.stderr}`);
-  }
-  const match = result.stdout.match(/password:\s+(\S+)/);
-  if (!match) throw new Error("db:seed did not print a demo password");
-  return match[1];
-}
-
-/** This suite logs in as the demo accounts repeatedly across runs while
- * iterating locally; without this they'd eventually trip
- * RATE_LIMIT_AUTH_MAX for real, same as any other repeated-login pattern. */
-function resetLoginAttempts(): void {
-  const result = spawnSync(tsxBin, [resetLoginAttemptsEntry], {
-    env: process.env,
-    encoding: "utf8",
-    timeout: 30_000,
-  });
-  if (result.status !== 0) {
-    throw new Error(`reset-demo-login-attempts failed: ${result.stderr}`);
-  }
-}
-
-async function login(page: Page, email: string, password: string) {
-  await page.goto("/login");
-  await page.getByLabel("Email").fill(email);
-  await page.getByLabel("Password").fill(password);
-  await page.getByRole("button", { name: "Sign in" }).click();
-  await page.waitForURL("/dashboard");
-}
 
 async function navLabels(page: Page): Promise<string[]> {
   const nav = page.getByRole("navigation", { name: "Primary" });
@@ -63,17 +14,12 @@ async function navLabels(page: Page): Promise<string[]> {
 }
 
 test.describe("Application shell", () => {
-  // Serial: every test shares the same seeded demo accounts, and db:seed
-  // resets their password each run — parallel workers would each reseed
-  // and invalidate the password other workers already read.
+  // Serial: keeps this file's own tests predictable to read even though
+  // the password race that originally motivated this is now handled once,
+  // globally, by support/global-setup.ts.
   test.describe.configure({ mode: "serial" });
 
-  let password: string;
-
-  test.beforeAll(() => {
-    password = seedDemoAccounts();
-    resetLoginAttempts();
-  });
+  const password = readSeededPassword();
 
   test("EMPLOYEE sees only their own-content navigation", async ({ page }) => {
     await login(page, "john.doe@example.local", password);
