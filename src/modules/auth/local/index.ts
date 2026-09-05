@@ -5,4 +5,5 @@
  * from here — never from a file inside this directory directly. See
  * ARCHITECTURE.md §2 (module rules) for the boundary contract.
  */
-export {};
+export { hashPassword, verifyPassword, needsRehash } from "./password";
+export { checkPasswordPolicy } from "./password-policy";

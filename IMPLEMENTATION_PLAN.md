@@ -4,7 +4,7 @@ The build order, what "done" means at each step, and where we currently are.
 The 28 phases from the master specification are grouped into seven milestones so
 progress is reviewable in meaningful chunks rather than one uncontrolled change.
 
-**Current status: Phase 2 complete — awaiting the go-ahead to start Phase 3.**
+**Current status: Phase 3 complete — awaiting the go-ahead to start Phase 4.**
 
 ---
 
@@ -81,19 +81,72 @@ required fields, and a clean successful boot that never prints a secret).
   a missing `SESSION_SECRET` exits non-zero with `SESSION_SECRET` named in
   the error, both as a manual check and as an automated test.
 
-### Phase 3 · Database and migrations
+### Phase 3 · Database and migrations — **complete**
 
-- Full `schema.prisma` from `DATABASE.md`; raw SQL migrations for `citext`,
-  `pg_trgm`, partial unique indexes, `CHECK` constraints, `tsvector` + GIN,
-  append-only grants.
-- Prisma client singleton, transaction helper, repository conventions.
-- `db:deploy`, `db:bootstrap`, `db:seed` scripts; seed covers permissions, roles,
-  departments, groups, SLA policies, retention policies, email templates, job
-  schedules, the three demo users and the "Introducing Kron PAM 4.0" fixture.
-- **Exit**: migrations apply to an empty database in one pass; seed runs twice
-  without error (idempotent); constraint tests prove the important invariants
-  (duplicate email rejected, Entra user cannot hold a password hash, one open
-  assignment per post).
+Delivered: Prisma 7.10 (stable; `latest` currently points at an 8.0 release
+candidate, so 7.10 was pinned deliberately) with the `@prisma/adapter-pg`
+driver adapter, which v7 requires for SQL connections. `prisma/schema.prisma`
+implements every enum and model in `DATABASE.md` §2–7 — all relations
+explicitly named and `onDelete` policies set per §8, every foreign key
+indexed. One migration (`20260905094359_init`) carries the generated DDL
+plus everything Prisma's schema language can't express, added as raw SQL:
+the `citext`/`pg_trgm`/`pgcrypto` extensions, the two `User` CHECK
+constraints, the `ApprovalAssignment` one-target CHECK and its one-open-
+assignment-per-post partial unique index, the `ApprovalAction`
+comment-required CHECK, `SlaPolicy`'s three-tier partial-unique scheme
+(department+priority, priority-only, global-default — each needed because
+a plain composite unique constraint can't express "unique except when
+null" the way Postgres already does for the `User`
+`(authProvider, externalIdentityId)` pair, which turned out to need no
+raw SQL at all), trigram GIN indexes on `User.displayName`/`email`, and a
+`BEFORE INSERT OR UPDATE` trigger maintaining `Post.searchVector` (safe
+from recursion because it sets `NEW` directly rather than issuing a
+second `UPDATE`, and correct because `PostVersion` is immutable — the
+search text can only change when `title` or `currentVersionId` does).
+Database-role grants for append-only enforcement are deliberately **not**
+in this migration: they depend on a restricted production role that
+doesn't exist in dev/CI, and belong with the rest of the security posture
+in Phase 25 / `DEPLOYMENT.md` instead of risking the shared dev/seed/test
+role's own access.
+
+`src/server/db.ts` is the Prisma client singleton (cached on `globalThis`
+in development), configured from `src/server/config.ts`'s
+`DATABASE_POOL_SIZE`/`DATABASE_CONNECT_TIMEOUT`/`DATABASE_STATEMENT_TIMEOUT_MS`/
+`DATABASE_SSL*`. No hand-written transaction wrapper — `prisma.$transaction`
+is used directly at call sites, which already covers what one would add.
+`prisma/lib/bootstrap-system-data.ts` is the shared, upsert-based baseline
+(permissions, the three system roles, SLA policies, retention policies,
+email templates, job schedules, a catch-all approval rule) used by both
+`npm run db:bootstrap` (production-safe, creates the first `ADMIN` account,
+refuses to run twice, supports non-interactive
+`BOOTSTRAP_ADMIN_EMAIL`/`_PASSWORD` for provisioning scripts) and
+`npm run db:seed` (development-only, refuses under `NODE_ENV=production`;
+adds four departments, an approval group, the three demo users, a
+department-scoped approval rule, and the "Introducing Kron PAM 4.0" hero
+fixture — three versions, two rounds of `REQUEST_CHANGES` with real
+reviewer comments, an image and a video attachment, and an open
+`IN_PROGRESS` assignment with `dueAt` six hours out and an eighteen-hour
+wait). `src/modules/auth/local/` gained real (not stubbed) Argon2id
+hashing and password-policy checking, since the bootstrap/seed scripts
+have no other legitimate way to create real accounts — the common-password
+list and password-history checks in `AUTHENTICATION.md` §2 are left for
+Phase 4, where a `PasswordHistory` table would need to be added.
+`src/jobs/enqueue-cli.ts` gives `job:enqueue` a real target now that
+`BackgroundJob` exists, idempotent per calendar minute.
+
+- **Exit — verified**: migrations apply cleanly to a fully dropped and
+  recreated database in one pass; `db:bootstrap` creates the admin once and
+  refuses a second run; `db:seed` run twice back-to-back leaves every row
+  count unchanged (including the hero post, matched by its `reference`) and
+  the demo password it prints actually authenticates; 25 automated tests
+  (12 of them exercising the constraints above against the real
+  `content_approval_test` database — duplicate email rejected case-
+  insensitively, Entra user cannot hold a password hash, LOCAL user needs a
+  password unless `PENDING`, exactly one of user/group on an assignment,
+  one open assignment per post, mandatory comment on `REQUEST_CHANGES`/
+  `REJECT`, all three `SlaPolicy` uniqueness tiers) pass repeatably across
+  three consecutive runs; `lint`, `typecheck`, `format:check`, `build` and
+  `test:e2e` are all still green.
 
 ---
 

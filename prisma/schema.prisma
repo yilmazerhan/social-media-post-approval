@@ -1,0 +1,849 @@
+// Schema of record: DATABASE.md. Keep them in sync.
+//
+// Things Prisma cannot express live in raw-SQL migrations instead of here:
+// partial unique indexes, CHECK constraints, citext/pg_trgm-backed indexes,
+// tsvector generation, and database role grants. See DATABASE.md §9.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// =========================================================================
+// Enums
+// =========================================================================
+
+enum AuthProvider {
+  LOCAL
+  ENTRA_ID
+}
+
+enum UserStatus {
+  ACTIVE
+  DISABLED
+  LOCKED
+  PENDING
+}
+
+enum PostStatus {
+  DRAFT
+  SUBMITTED
+  IN_REVIEW
+  APPROVED
+  REJECTED
+  CHANGES_REQUESTED
+  CANCELLED
+  ARCHIVED
+}
+
+enum Priority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum ApprovalActionType {
+  SUBMIT
+  ASSIGN
+  START_REVIEW
+  APPROVE
+  REJECT
+  REQUEST_CHANGES
+  RESUBMIT
+  CANCEL
+  REASSIGN
+}
+
+enum AssignmentStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  ESCALATED
+}
+
+enum ApproverTargetType {
+  USER
+  GROUP
+  DEPARTMENT_MANAGER
+}
+
+enum AttachmentKind {
+  IMAGE
+  VIDEO
+}
+
+enum AttachmentStatus {
+  TEMPORARY
+  ATTACHED
+  ORPHANED
+}
+
+enum NotificationType {
+  POST_SUBMITTED
+  APPROVAL_ASSIGNED
+  CHANGES_REQUESTED
+  POST_APPROVED
+  POST_REJECTED
+  COMMENT_MENTION
+  COMMENT_ADDED
+  SLA_WARNING
+  SLA_OVERDUE
+  ESCALATION
+}
+
+enum EmailStatus {
+  QUEUED
+  SENT
+  FAILED
+  SUPPRESSED
+}
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  SUCCEEDED
+  FAILED
+  DEAD
+  CANCELLED
+}
+
+enum JobType {
+  EMAIL_SEND
+  DAILY_DIGEST
+  SLA_CHECK
+  SLA_ESCALATE
+  RETENTION_CLEANUP
+  ORPHAN_ATTACHMENT_CLEANUP
+  TEMP_FILE_CLEANUP
+  SESSION_CLEANUP
+  NOTIFICATION_FANOUT
+}
+
+enum RetentionTarget {
+  POST
+  ATTACHMENT
+  COMMENT
+  NOTIFICATION
+  EMAIL_LOG
+  AUDIT_LOG
+  BACKGROUND_JOB
+  SESSION
+}
+
+enum SettingType {
+  STRING
+  INT
+  BOOL
+  JSON
+  DURATION_MINUTES
+  TIME_OF_DAY
+}
+
+// =========================================================================
+// 3. Identity and access
+// =========================================================================
+
+model Role {
+  id          String   @id @default(uuid()) @db.Uuid
+  key         String   @unique
+  name        String
+  description String?
+  isSystem    Boolean  @default(false)
+  createdAt   DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(6)
+
+  permissions RolePermission[]
+  users       UserRole[]
+}
+
+model Permission {
+  id          String   @id @default(uuid()) @db.Uuid
+  key         String   @unique
+  description String?
+  category    String
+  createdAt   DateTime @default(now()) @db.Timestamptz(6)
+
+  roles RolePermission[]
+}
+
+model RolePermission {
+  roleId       String @db.Uuid
+  permissionId String @db.Uuid
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@index([permissionId])
+}
+
+model UserRole {
+  userId      String   @db.Uuid
+  roleId      String   @db.Uuid
+  grantedById String?  @db.Uuid
+  grantedAt   DateTime @default(now()) @db.Timestamptz(6)
+
+  user      User  @relation("UserRoleUser", fields: [userId], references: [id], onDelete: Cascade)
+  role      Role  @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  grantedBy User? @relation("UserRoleGrantedBy", fields: [grantedById], references: [id], onDelete: SetNull)
+
+  @@id([userId, roleId])
+  @@index([roleId])
+  @@index([grantedById])
+}
+
+model Department {
+  id        String    @id @default(uuid()) @db.Uuid
+  key       String    @unique
+  name      String
+  managerId String?   @db.Uuid
+  parentId  String?   @db.Uuid
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @db.Timestamptz(6)
+  deletedAt DateTime? @db.Timestamptz(6)
+
+  manager  User?        @relation("DepartmentManager", fields: [managerId], references: [id], onDelete: SetNull)
+  parent   Department?  @relation("DepartmentHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children Department[] @relation("DepartmentHierarchy")
+
+  users         User[]         @relation("DepartmentMembers")
+  posts         Post[]
+  approvalRules ApprovalRule[]
+  slaPolicies   SlaPolicy[]
+
+  @@index([managerId])
+  @@index([parentId])
+}
+
+model Group {
+  id              String   @id @default(uuid()) @db.Uuid
+  key             String   @unique
+  name            String
+  description     String?
+  isApprovalGroup Boolean  @default(false)
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt       DateTime @updatedAt @db.Timestamptz(6)
+
+  members              UserGroup[]
+  requestedByPosts     Post[]               @relation("PostRequestedGroup")
+  assignedApprovals    ApprovalAssignment[] @relation("AssignmentGroup")
+  approvalRuleTargets  ApprovalRule[]       @relation("ApprovalRuleTargetGroup")
+  approvalRuleCreators ApprovalRule[]       @relation("ApprovalRuleCreatorGroup")
+  slaEscalationTargets SlaPolicy[]          @relation("SlaEscalationGroup")
+}
+
+model UserGroup {
+  userId  String   @db.Uuid
+  groupId String   @db.Uuid
+  addedAt DateTime @default(now()) @db.Timestamptz(6)
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@id([userId, groupId])
+  @@index([groupId])
+}
+
+model User {
+  id                 String       @id @default(uuid()) @db.Uuid
+  email              String       @unique @db.Citext
+  displayName        String
+  firstName          String
+  lastName           String
+  jobTitle           String?
+  departmentId       String?      @db.Uuid
+  status             UserStatus   @default(ACTIVE)
+  authProvider       AuthProvider
+  externalIdentityId String?
+  passwordHash       String?
+  passwordUpdatedAt  DateTime?    @db.Timestamptz(6)
+  mustChangePassword Boolean      @default(false)
+  failedLoginCount   Int          @default(0)
+  lockedUntil        DateTime?    @db.Timestamptz(6)
+  timezone           String?
+  lastLoginAt        DateTime?    @db.Timestamptz(6)
+  createdAt          DateTime     @default(now()) @db.Timestamptz(6)
+  updatedAt          DateTime     @updatedAt @db.Timestamptz(6)
+  deletedAt          DateTime?    @db.Timestamptz(6)
+
+  department Department? @relation("DepartmentMembers", fields: [departmentId], references: [id], onDelete: SetNull)
+
+  managedDepartments   Department[]         @relation("DepartmentManager")
+  roles                UserRole[]           @relation("UserRoleUser")
+  rolesGranted         UserRole[]           @relation("UserRoleGrantedBy")
+  groups               UserGroup[]
+  sessions             Session[]
+  passwordResetTokens  PasswordResetToken[]
+  loginAttempts        LoginAttempt[]
+  createdPosts         Post[]               @relation("PostCreator")
+  requestedOnPosts     Post[]               @relation("PostRequestedApprover")
+  createdVersions      PostVersion[]        @relation("PostVersionAuthor")
+  uploadedAttachments  Attachment[]         @relation("AttachmentUploader")
+  assignedApprovals    ApprovalAssignment[] @relation("AssignmentAssignee")
+  createdAssignments   ApprovalAssignment[] @relation("AssignmentAssignedBy")
+  approvalActions      ApprovalAction[]     @relation("ApprovalActionActor")
+  approvalRuleTargets  ApprovalRule[]       @relation("ApprovalRuleTargetUser")
+  slaEscalationTargets SlaPolicy[]          @relation("SlaEscalationUser")
+  comments             Comment[]            @relation("CommentAuthor")
+  mentions             CommentMention[]
+  notifications        Notification[]       @relation("NotificationRecipient")
+  notificationsCaused  Notification[]       @relation("NotificationActor")
+  emailLogs            EmailLog[]
+  emailTemplateEdits   EmailTemplate[]      @relation("EmailTemplateUpdatedBy")
+  retentionPolicyEdits RetentionPolicy[]    @relation("RetentionPolicyUpdatedBy")
+  auditLogEntries      AuditLog[]           @relation("AuditLogActor")
+  systemSettingEdits   SystemSetting[]      @relation("SystemSettingUpdatedBy")
+
+  @@index([status])
+  @@index([departmentId])
+}
+
+model Session {
+  id               String       @id @default(uuid()) @db.Uuid
+  userId           String       @db.Uuid
+  tokenHash        String       @unique
+  createdAt        DateTime     @default(now()) @db.Timestamptz(6)
+  lastSeenAt       DateTime     @default(now()) @db.Timestamptz(6)
+  expiresAt        DateTime     @db.Timestamptz(6)
+  revokedAt        DateTime?    @db.Timestamptz(6)
+  revokedReason    String?
+  ipAddress        String?      @db.Inet
+  userAgent        String?
+  authProvider     AuthProvider
+  samlSessionIndex String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt])
+  @@index([expiresAt])
+}
+
+model PasswordResetToken {
+  id          String    @id @default(uuid()) @db.Uuid
+  userId      String    @db.Uuid
+  tokenHash   String    @unique
+  expiresAt   DateTime  @db.Timestamptz(6)
+  usedAt      DateTime? @db.Timestamptz(6)
+  requestedIp String?   @db.Inet
+  createdAt   DateTime  @default(now()) @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model LoginAttempt {
+  id         BigInt   @id @default(autoincrement())
+  email      String
+  userId     String?  @db.Uuid
+  successful Boolean
+  ipAddress  String?  @db.Inet
+  userAgent  String?
+  reason     String?
+  createdAt  DateTime @default(now()) @db.Timestamptz(6)
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([email, createdAt(sort: Desc)])
+  @@index([ipAddress, createdAt(sort: Desc)])
+  @@index([userId])
+}
+
+model SamlReplayGuard {
+  assertionId  String   @id
+  notOnOrAfter DateTime @db.Timestamptz(6)
+  consumedAt   DateTime @default(now()) @db.Timestamptz(6)
+}
+
+// =========================================================================
+// 4. Content
+// =========================================================================
+
+model Post {
+  id                  String                   @id @default(uuid()) @db.Uuid
+  reference           String                   @unique
+  title               String
+  creatorId           String                   @db.Uuid
+  departmentId        String?                  @db.Uuid
+  priority            Priority                 @default(NORMAL)
+  status              PostStatus               @default(DRAFT)
+  currentVersionId    String?                  @db.Uuid
+  approvedVersionId   String?                  @db.Uuid
+  draftTitle          String?
+  draftContentJson    Json?
+  draftUpdatedAt      DateTime?                @db.Timestamptz(6)
+  approvalRouteId     String?                  @db.Uuid
+  requestedApproverId String?                  @db.Uuid
+  requestedGroupId    String?                  @db.Uuid
+  slaPolicyId         String?                  @db.Uuid
+  submittedAt         DateTime?                @db.Timestamptz(6)
+  firstReviewedAt     DateTime?                @db.Timestamptz(6)
+  decidedAt           DateTime?                @db.Timestamptz(6)
+  dueAt               DateTime?                @db.Timestamptz(6)
+  rejectionReason     String?
+  lockVersion         Int                      @default(0)
+  retentionEligibleAt DateTime?                @db.Timestamptz(6)
+  archivedAt          DateTime?                @db.Timestamptz(6)
+  createdAt           DateTime                 @default(now()) @db.Timestamptz(6)
+  updatedAt           DateTime                 @updatedAt @db.Timestamptz(6)
+  deletedAt           DateTime?                @db.Timestamptz(6)
+  // Maintained by a trigger added in a raw-SQL migration — see DATABASE.md §4.
+  searchVector        Unsupported("tsvector")?
+
+  creator           User          @relation("PostCreator", fields: [creatorId], references: [id], onDelete: Restrict)
+  department        Department?   @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  currentVersion    PostVersion?  @relation("PostCurrentVersion", fields: [currentVersionId], references: [id], onDelete: SetNull)
+  approvedVersion   PostVersion?  @relation("PostApprovedVersion", fields: [approvedVersionId], references: [id], onDelete: SetNull)
+  approvalRoute     ApprovalRule? @relation(fields: [approvalRouteId], references: [id], onDelete: SetNull)
+  requestedApprover User?         @relation("PostRequestedApprover", fields: [requestedApproverId], references: [id], onDelete: SetNull)
+  requestedGroup    Group?        @relation("PostRequestedGroup", fields: [requestedGroupId], references: [id], onDelete: SetNull)
+  slaPolicy         SlaPolicy?    @relation(fields: [slaPolicyId], references: [id], onDelete: SetNull)
+
+  versions      PostVersion[]        @relation("PostVersions")
+  assignments   ApprovalAssignment[]
+  actions       ApprovalAction[]
+  comments      Comment[]
+  notifications Notification[]
+
+  @@index([creatorId, status, updatedAt(sort: Desc)])
+  @@index([status, dueAt])
+  @@index([departmentId, status])
+  @@index([priority, dueAt])
+  @@index([currentVersionId])
+  @@index([approvedVersionId])
+  @@index([approvalRouteId])
+  @@index([requestedApproverId])
+  @@index([requestedGroupId])
+  @@index([slaPolicyId])
+}
+
+model PostVersion {
+  id                  String    @id @default(uuid()) @db.Uuid
+  postId              String    @db.Uuid
+  versionNumber       Int
+  title               String
+  contentJson         Json
+  contentHtml         String
+  contentText         String
+  characterCount      Int
+  wordCount           Int
+  createdById         String    @db.Uuid
+  createdAt           DateTime  @default(now()) @db.Timestamptz(6)
+  submittedAt         DateTime? @db.Timestamptz(6)
+  changeSummary       String?
+  supersedesVersionId String?   @db.Uuid
+
+  post       Post         @relation("PostVersions", fields: [postId], references: [id], onDelete: Cascade)
+  createdBy  User         @relation("PostVersionAuthor", fields: [createdById], references: [id], onDelete: Restrict)
+  supersedes PostVersion? @relation("PostVersionLineage", fields: [supersedesVersionId], references: [id], onDelete: SetNull)
+
+  supersededByVersions PostVersion[]           @relation("PostVersionLineage")
+  currentForPosts      Post[]                  @relation("PostCurrentVersion")
+  approvedForPosts     Post[]                  @relation("PostApprovedVersion")
+  attachments          PostVersionAttachment[]
+  comments             Comment[]
+  approvalAssignments  ApprovalAssignment[]
+  approvalActions      ApprovalAction[]
+
+  @@unique([postId, versionNumber])
+  @@index([postId])
+  @@index([createdById])
+  @@index([supersedesVersionId])
+}
+
+model Attachment {
+  id                String           @id @default(uuid()) @db.Uuid
+  storageKey        String           @unique
+  originalFilename  String
+  sanitizedFilename String
+  kind              AttachmentKind
+  mimeType          String
+  extension         String
+  byteSize          Int
+  checksumSha256    String
+  width             Int?
+  height            Int?
+  durationSeconds   Int?
+  videoCodec        String?
+  thumbnailKey      String?
+  posterKey         String?
+  status            AttachmentStatus @default(TEMPORARY)
+  uploadedById      String           @db.Uuid
+  createdAt         DateTime         @default(now()) @db.Timestamptz(6)
+  attachedAt        DateTime?        @db.Timestamptz(6)
+  deletedAt         DateTime?        @db.Timestamptz(6)
+
+  uploadedBy User                    @relation("AttachmentUploader", fields: [uploadedById], references: [id], onDelete: Restrict)
+  versions   PostVersionAttachment[]
+
+  @@index([status, createdAt])
+  @@index([uploadedById])
+  @@index([checksumSha256])
+}
+
+model PostVersionAttachment {
+  postVersionId String @db.Uuid
+  attachmentId  String @db.Uuid
+  position      Int
+
+  postVersion PostVersion @relation(fields: [postVersionId], references: [id], onDelete: Cascade)
+  attachment  Attachment  @relation(fields: [attachmentId], references: [id], onDelete: Restrict)
+
+  @@id([postVersionId, attachmentId])
+  @@index([attachmentId])
+}
+
+// =========================================================================
+// 5. Approval
+// =========================================================================
+
+model ApprovalRule {
+  id                   String             @id @default(uuid()) @db.Uuid
+  name                 String
+  description          String?
+  isActive             Boolean            @default(true)
+  priorityOrder        Int
+  departmentId         String?            @db.Uuid
+  priority             Priority?
+  creatorGroupId       String?            @db.Uuid
+  targetType           ApproverTargetType
+  targetUserId         String?            @db.Uuid
+  targetGroupId        String?            @db.Uuid
+  slaPolicyId          String?            @db.Uuid
+  allowCreatorOverride Boolean            @default(false)
+  createdAt            DateTime           @default(now()) @db.Timestamptz(6)
+  updatedAt            DateTime           @updatedAt @db.Timestamptz(6)
+
+  department   Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  creatorGroup Group?      @relation("ApprovalRuleCreatorGroup", fields: [creatorGroupId], references: [id], onDelete: SetNull)
+  targetUser   User?       @relation("ApprovalRuleTargetUser", fields: [targetUserId], references: [id], onDelete: SetNull)
+  targetGroup  Group?      @relation("ApprovalRuleTargetGroup", fields: [targetGroupId], references: [id], onDelete: SetNull)
+  slaPolicy    SlaPolicy?  @relation(fields: [slaPolicyId], references: [id], onDelete: SetNull)
+
+  posts       Post[]
+  assignments ApprovalAssignment[]
+
+  @@index([isActive, priorityOrder])
+  @@index([departmentId])
+  @@index([creatorGroupId])
+  @@index([targetUserId])
+  @@index([targetGroupId])
+  @@index([slaPolicyId])
+}
+
+model ApprovalAssignment {
+  id              String           @id @default(uuid()) @db.Uuid
+  postId          String           @db.Uuid
+  postVersionId   String           @db.Uuid
+  assigneeUserId  String?          @db.Uuid
+  assigneeGroupId String?          @db.Uuid
+  assignedById    String?          @db.Uuid
+  status          AssignmentStatus @default(PENDING)
+  ruleId          String?          @db.Uuid
+  dueAt           DateTime?        @db.Timestamptz(6)
+  warningAt       DateTime?        @db.Timestamptz(6)
+  assignedAt      DateTime         @default(now()) @db.Timestamptz(6)
+  startedAt       DateTime?        @db.Timestamptz(6)
+  completedAt     DateTime?        @db.Timestamptz(6)
+  escalatedAt     DateTime?        @db.Timestamptz(6)
+  escalationLevel Int              @default(0)
+
+  post          Post          @relation(fields: [postId], references: [id], onDelete: Cascade)
+  postVersion   PostVersion   @relation(fields: [postVersionId], references: [id], onDelete: Restrict)
+  assigneeUser  User?         @relation("AssignmentAssignee", fields: [assigneeUserId], references: [id], onDelete: SetNull)
+  assigneeGroup Group?        @relation("AssignmentGroup", fields: [assigneeGroupId], references: [id], onDelete: SetNull)
+  assignedBy    User?         @relation("AssignmentAssignedBy", fields: [assignedById], references: [id], onDelete: SetNull)
+  rule          ApprovalRule? @relation(fields: [ruleId], references: [id], onDelete: SetNull)
+
+  actions ApprovalAction[]
+
+  @@index([assigneeUserId, status, dueAt])
+  @@index([status, warningAt])
+  @@index([status, dueAt])
+  @@index([postId])
+  @@index([postVersionId])
+  @@index([assigneeGroupId])
+  @@index([assignedById])
+  @@index([ruleId])
+}
+
+model ApprovalAction {
+  id             String             @id @default(uuid()) @db.Uuid
+  postId         String             @db.Uuid
+  postVersionId  String             @db.Uuid
+  assignmentId   String?            @db.Uuid
+  actorId        String             @db.Uuid
+  action         ApprovalActionType
+  comment        String?
+  previousStatus PostStatus
+  newStatus      PostStatus
+  createdAt      DateTime           @default(now()) @db.Timestamptz(6)
+  metadata       Json?
+
+  post        Post                @relation(fields: [postId], references: [id], onDelete: Cascade)
+  postVersion PostVersion         @relation(fields: [postVersionId], references: [id], onDelete: Restrict)
+  assignment  ApprovalAssignment? @relation(fields: [assignmentId], references: [id], onDelete: SetNull)
+  actor       User                @relation("ApprovalActionActor", fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([postId, createdAt])
+  @@index([actorId, createdAt(sort: Desc)])
+  @@index([action, createdAt])
+  @@index([postVersionId])
+  @@index([assignmentId])
+}
+
+model SlaPolicy {
+  id                      String              @id @default(uuid()) @db.Uuid
+  name                    String
+  priority                Priority?
+  departmentId            String?             @db.Uuid
+  durationMinutes         Int
+  warningThresholdPercent Int                 @default(75)
+  businessHoursOnly       Boolean             @default(false)
+  escalationAfterMinutes  Int?
+  escalationTargetType    ApproverTargetType?
+  escalationUserId        String?             @db.Uuid
+  escalationGroupId       String?             @db.Uuid
+  isActive                Boolean             @default(true)
+  createdAt               DateTime            @default(now()) @db.Timestamptz(6)
+  updatedAt               DateTime            @updatedAt @db.Timestamptz(6)
+
+  department      Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  escalationUser  User?       @relation("SlaEscalationUser", fields: [escalationUserId], references: [id], onDelete: SetNull)
+  escalationGroup Group?      @relation("SlaEscalationGroup", fields: [escalationGroupId], references: [id], onDelete: SetNull)
+
+  posts         Post[]
+  approvalRules ApprovalRule[]
+
+  @@index([departmentId, priority])
+  @@index([escalationUserId])
+  @@index([escalationGroupId])
+}
+
+// =========================================================================
+// 6. Collaboration and delivery
+// =========================================================================
+
+model Comment {
+  id            String    @id @default(uuid()) @db.Uuid
+  postId        String    @db.Uuid
+  postVersionId String?   @db.Uuid
+  authorId      String    @db.Uuid
+  parentId      String?   @db.Uuid
+  body          String
+  bodyHtml      String
+  isInternal    Boolean   @default(false)
+  createdAt     DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt     DateTime  @updatedAt @db.Timestamptz(6)
+  deletedAt     DateTime? @db.Timestamptz(6)
+
+  post        Post         @relation(fields: [postId], references: [id], onDelete: Cascade)
+  postVersion PostVersion? @relation(fields: [postVersionId], references: [id], onDelete: SetNull)
+  author      User         @relation("CommentAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  parent      Comment?     @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+
+  replies  Comment[]        @relation("CommentReplies")
+  mentions CommentMention[]
+
+  @@index([postId, createdAt])
+  @@index([parentId])
+  @@index([postVersionId])
+  @@index([authorId])
+}
+
+model CommentMention {
+  commentId       String @db.Uuid
+  mentionedUserId String @db.Uuid
+
+  comment       Comment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  mentionedUser User    @relation(fields: [mentionedUserId], references: [id], onDelete: Cascade)
+
+  @@id([commentId, mentionedUserId])
+  @@index([mentionedUserId])
+}
+
+model Notification {
+  id          String           @id @default(uuid()) @db.Uuid
+  recipientId String           @db.Uuid
+  type        NotificationType
+  title       String
+  body        String
+  entityType  String
+  entityId    String
+  postId      String?          @db.Uuid
+  actorId     String?          @db.Uuid
+  createdAt   DateTime         @default(now()) @db.Timestamptz(6)
+  readAt      DateTime?        @db.Timestamptz(6)
+  emailJobId  BigInt?
+
+  recipient User  @relation("NotificationRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  post      Post? @relation(fields: [postId], references: [id], onDelete: SetNull)
+  actor     User? @relation("NotificationActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([recipientId, readAt, createdAt(sort: Desc)])
+  @@index([postId])
+  @@index([actorId])
+}
+
+model EmailTemplate {
+  id              String   @id @default(uuid()) @db.Uuid
+  key             String   @unique
+  name            String
+  subjectTemplate String
+  bodyTemplate    String
+  isHtml          Boolean  @default(true)
+  locale          String   @default("en")
+  isActive        Boolean  @default(true)
+  updatedById     String?  @db.Uuid
+  createdAt       DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt       DateTime @updatedAt @db.Timestamptz(6)
+
+  updatedBy User? @relation("EmailTemplateUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@index([updatedById])
+}
+
+model EmailLog {
+  id             BigInt      @id @default(autoincrement())
+  templateKey    String
+  toAddress      String
+  ccAddress      String?
+  subject        String
+  status         EmailStatus @default(QUEUED)
+  attempts       Int         @default(0)
+  lastError      String?
+  jobId          BigInt?
+  // Not a Prisma relation: email logs may outlive the post they refer to
+  // (different retention windows) — see DATABASE.md §8.
+  postId         String?     @db.Uuid
+  userId         String?     @db.Uuid
+  idempotencyKey String?     @unique
+  queuedAt       DateTime    @default(now()) @db.Timestamptz(6)
+  sentAt         DateTime?   @db.Timestamptz(6)
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([status, queuedAt])
+  @@index([toAddress, queuedAt])
+  @@index([postId])
+  @@index([userId])
+}
+
+// =========================================================================
+// 7. Operations
+// =========================================================================
+
+model BackgroundJob {
+  id             BigInt    @id @default(autoincrement())
+  type           JobType
+  payload        Json
+  status         JobStatus @default(PENDING)
+  priority       Int       @default(0)
+  attempts       Int       @default(0)
+  maxAttempts    Int       @default(5)
+  scheduledAt    DateTime  @default(now()) @db.Timestamptz(6)
+  startedAt      DateTime? @db.Timestamptz(6)
+  completedAt    DateTime? @db.Timestamptz(6)
+  lockedBy       String?
+  lockedAt       DateTime? @db.Timestamptz(6)
+  lastError      String?
+  idempotencyKey String?   @unique
+  createdAt      DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime  @updatedAt @db.Timestamptz(6)
+
+  @@index([status, scheduledAt, priority])
+  @@index([status, lockedAt])
+}
+
+model JobSchedule {
+  id               String    @id @default(uuid()) @db.Uuid
+  key              String    @unique
+  jobType          JobType
+  cronExpression   String
+  timezone         String    @default("UTC")
+  payload          Json?
+  isEnabled        Boolean   @default(true)
+  lastEnqueuedSlot String?
+  lastRunAt        DateTime? @db.Timestamptz(6)
+  nextRunAt        DateTime? @db.Timestamptz(6)
+  createdAt        DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt        DateTime  @updatedAt @db.Timestamptz(6)
+}
+
+model RetentionPolicy {
+  id            String          @id @default(uuid()) @db.Uuid
+  target        RetentionTarget @unique
+  retentionDays Int
+  isEnabled     Boolean         @default(true)
+  dryRun        Boolean         @default(true)
+  lastRunAt     DateTime?       @db.Timestamptz(6)
+  description   String?
+  updatedById   String?         @db.Uuid
+  createdAt     DateTime        @default(now()) @db.Timestamptz(6)
+  updatedAt     DateTime        @updatedAt @db.Timestamptz(6)
+
+  updatedBy User? @relation("RetentionPolicyUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@index([updatedById])
+}
+
+model RetentionRun {
+  id             BigInt          @id @default(autoincrement())
+  target         RetentionTarget
+  dryRun         Boolean
+  startedAt      DateTime        @default(now()) @db.Timestamptz(6)
+  finishedAt     DateTime?       @db.Timestamptz(6)
+  candidateCount Int             @default(0)
+  deletedCount   Int             @default(0)
+  skippedCount   Int             @default(0)
+  freedBytes     BigInt?
+  error          String?
+  details        Json?
+}
+
+model AuditLog {
+  id         BigInt   @id @default(autoincrement())
+  actorId    String?  @db.Uuid
+  actorEmail String?
+  action     String
+  entityType String
+  entityId   String?
+  // Not a Prisma relation: audit history must survive post deletion.
+  postId     String?  @db.Uuid
+  ipAddress  String?  @db.Inet
+  userAgent  String?
+  metadata   Json     @default("{}")
+  createdAt  DateTime @default(now()) @db.Timestamptz(6)
+
+  actor User? @relation("AuditLogActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt(sort: Desc)])
+  @@index([entityType, entityId, createdAt(sort: Desc)])
+  @@index([actorId, createdAt(sort: Desc)])
+  @@index([action, createdAt(sort: Desc)])
+  @@index([postId])
+}
+
+model SystemSetting {
+  key         String      @id
+  value       String?
+  type        SettingType
+  category    String
+  description String?
+  isSecret    Boolean     @default(false)
+  updatedById String?     @db.Uuid
+  updatedAt   DateTime    @updatedAt @db.Timestamptz(6)
+
+  updatedBy User? @relation("SystemSettingUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@index([updatedById])
+}

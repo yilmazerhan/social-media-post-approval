@@ -44,3 +44,5 @@ Thumbs.db
 .pnp.*
 .vercel
 *.tsbuildinfo
+
+/src/generated/prisma
