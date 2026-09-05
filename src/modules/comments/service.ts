@@ -18,6 +18,7 @@ import {
 } from "@/modules/authorization";
 import { loadApprovalReadResource } from "@/modules/approvals";
 import { writeAudit } from "@/modules/audit";
+import { writeNotification } from "@/modules/notifications";
 import { listMentionableUsers, parseAndRenderComment } from "./mentions";
 import type { CreateCommentInput, UpdateCommentInput } from "./validation";
 import type { CommentDto } from "./types";
@@ -133,19 +134,74 @@ async function notifyMentions(
   const recipients = params.mentionedUserIds.filter(
     (id) => id !== params.authorId,
   );
-  if (recipients.length === 0) return;
-  await tx.notification.createMany({
-    data: recipients.map((recipientId) => ({
-      recipientId,
-      type: "COMMENT_MENTION" as const,
-      title: `${params.authorName} mentioned you`,
-      body: `${params.authorName} mentioned you in a comment.`,
-      entityType: "Comment",
-      entityId: params.commentId,
-      postId: params.postId,
-      actorId: params.authorId,
-    })),
+  for (const recipientId of recipients) {
+    await writeNotification(
+      {
+        recipientId,
+        type: "COMMENT_MENTION",
+        title: `${params.authorName} mentioned you`,
+        body: `${params.authorName} mentioned you in a comment.`,
+        entityType: "Comment",
+        entityId: params.commentId,
+        postId: params.postId,
+        actorId: params.authorId,
+      },
+      tx,
+    );
+  }
+}
+
+/**
+ * COMMENT_ADDED — the post's creator and its current open assignee, minus
+ * whoever already got a COMMENT_MENTION for this same comment and minus the
+ * comment's own author (they don't need telling about their own comment).
+ */
+async function notifyCommentAdded(
+  tx: Prisma.TransactionClient,
+  params: {
+    postId: string;
+    commentId: string;
+    authorId: string;
+    authorName: string;
+    mentionedUserIds: string[];
+  },
+): Promise<void> {
+  const post = await tx.post.findUnique({
+    where: { id: params.postId },
+    select: { creatorId: true, title: true },
   });
+  if (!post) return;
+
+  const assignment = await tx.approvalAssignment.findFirst({
+    where: {
+      postId: params.postId,
+      status: { in: ["PENDING", "IN_PROGRESS"] },
+    },
+    select: { assigneeUserId: true },
+  });
+
+  const excluded = new Set([params.authorId, ...params.mentionedUserIds]);
+  const recipients = new Set(
+    [post.creatorId, assignment?.assigneeUserId ?? null].filter(
+      (id): id is string => !!id && !excluded.has(id),
+    ),
+  );
+
+  for (const recipientId of recipients) {
+    await writeNotification(
+      {
+        recipientId,
+        type: "COMMENT_ADDED",
+        title: `New comment on ${post.title}`,
+        body: `${params.authorName} commented on ${post.title}.`,
+        entityType: "Comment",
+        entityId: params.commentId,
+        postId: params.postId,
+        actorId: params.authorId,
+      },
+      tx,
+    );
+  }
 }
 
 export async function createComment(params: {
@@ -206,6 +262,13 @@ export async function createComment(params: {
       });
     }
     await notifyMentions(tx, {
+      postId: params.postId,
+      commentId: comment.id,
+      authorId: params.authorId,
+      authorName: params.authorName,
+      mentionedUserIds,
+    });
+    await notifyCommentAdded(tx, {
       postId: params.postId,
       commentId: comment.id,
       authorId: params.authorId,

@@ -22,6 +22,7 @@ import {
   CommentRequiredError,
 } from "@/server/http/handler";
 import { writeAudit } from "@/modules/audit";
+import { writeNotification } from "@/modules/notifications";
 import type { PolicyResource } from "@/modules/authorization";
 import { assertLegalTransition } from "./state-machine";
 
@@ -267,6 +268,19 @@ export async function approvePost(params: {
       },
       tx,
     );
+    await writeNotification(
+      {
+        recipientId: post.creatorId,
+        type: "POST_APPROVED",
+        title: `Approved: ${post.title}`,
+        body: `${post.title} (version ${version.versionNumber}) was approved by ${approver.displayName}.`,
+        entityType: "Post",
+        entityId: post.id,
+        postId: post.id,
+        actorId: params.userId,
+      },
+      tx,
+    );
 
     return {
       status: "APPROVED",
@@ -349,6 +363,19 @@ export async function requestChanges(params: {
       },
       tx,
     );
+    await writeNotification(
+      {
+        recipientId: post.creatorId,
+        type: "CHANGES_REQUESTED",
+        title: `Changes requested: ${post.title}`,
+        body: comment,
+        entityType: "Post",
+        entityId: post.id,
+        postId: post.id,
+        actorId: params.userId,
+      },
+      tx,
+    );
 
     return {
       status: "CHANGES_REQUESTED",
@@ -428,6 +455,19 @@ export async function rejectPost(params: {
         entityId: post.id,
         postId: post.id,
         metadata: { versionNumber: version.versionNumber },
+      },
+      tx,
+    );
+    await writeNotification(
+      {
+        recipientId: post.creatorId,
+        type: "POST_REJECTED",
+        title: `Rejected: ${post.title}`,
+        body: reason,
+        entityType: "Post",
+        entityId: post.id,
+        postId: post.id,
+        actorId: params.userId,
       },
       tx,
     );

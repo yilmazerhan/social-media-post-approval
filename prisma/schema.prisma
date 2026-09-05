@@ -296,6 +296,7 @@ model User {
   mentions             CommentMention[]
   notifications        Notification[]       @relation("NotificationRecipient")
   notificationsCaused  Notification[]       @relation("NotificationActor")
+  notificationPreferences NotificationPreference[]
   emailLogs            EmailLog[]
   emailTemplateEdits   EmailTemplate[]      @relation("EmailTemplateUpdatedBy")
   retentionPolicyEdits RetentionPolicy[]    @relation("RetentionPolicyUpdatedBy")
@@ -698,6 +699,23 @@ model Notification {
   @@index([recipientId, readAt, createdAt(sort: Desc)])
   @@index([postId])
   @@index([actorId])
+}
+
+/// Per-user, per-type in-app/email opt-out — API.md's `GET/PATCH
+/// /notifications/preferences` ("preferences for in-app and email per
+/// notification type," UI_UX_SPEC.md §6). Absence of a row means both
+/// defaults (`true`/`true`) apply — writeNotification and the future
+/// email queue only need to check for an explicit `false`.
+model NotificationPreference {
+  userId       String           @db.Uuid
+  type         NotificationType
+  inAppEnabled Boolean          @default(true)
+  emailEnabled Boolean          @default(true)
+  updatedAt    DateTime         @updatedAt @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, type])
 }
 
 model EmailTemplate {

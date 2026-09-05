@@ -293,6 +293,13 @@ postId?, actorId?, createdAt, readAt?, emailJobId?`.
 Indexes `(recipientId, readAt, createdAt DESC)` — this one index answers the
 unread badge, the list and the filters.
 
+### NotificationPreference
+
+`userId, type NotificationType, inAppEnabled (default true), emailEnabled
+(default true), updatedAt`. `PRIMARY KEY (userId, type)`. Absence of a row
+for a `(user, type)` pair means both defaults apply — `writeNotification`
+and the email queue only ever need to check for an explicit `false`.
+
 ### EmailTemplate
 
 `id, key UNIQUE, name, subjectTemplate, bodyTemplate, isHtml, locale, isActive,

@@ -1,14 +1,22 @@
 import type { Metadata } from "next";
-import { ComingSoon } from "@/components/app/coming-soon";
+import { redirect } from "next/navigation";
+import { getServerSessionContext } from "@/server/http/request-context";
+import { PageHeader } from "@/components/app/page-header";
+import { NotificationsView } from "@/components/app/notifications/notifications-view";
 
 export const metadata: Metadata = { title: "Notifications — Content Approval" };
 
-export default function NotificationsPage() {
+export default async function NotificationsPage() {
+  const sessionContext = await getServerSessionContext();
+  if (!sessionContext) redirect("/login");
+
   return (
-    <ComingSoon
-      title="Notifications"
-      breadcrumbs={[{ label: "Notifications" }]}
-      phaseNote="The notification feed, mark-as-read and preferences arrive in Phase 16."
-    />
+    <div>
+      <PageHeader
+        title="Notifications"
+        breadcrumbs={[{ label: "Notifications" }]}
+      />
+      <NotificationsView />
+    </div>
   );
 }

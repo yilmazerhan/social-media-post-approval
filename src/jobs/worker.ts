@@ -9,6 +9,7 @@
  * import as later phases give them a job type.
  */
 import "@/modules/attachments/jobs";
+import "@/modules/notifications/jobs";
 import { config } from "@/server/config";
 import { workerLogger } from "@/server/logger";
 import { pollOnce } from "./queue";

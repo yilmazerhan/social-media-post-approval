@@ -4,7 +4,7 @@ The build order, what "done" means at each step, and where we currently are.
 The 28 phases from the master specification are grouped into seven milestones so
 progress is reviewable in meaningful chunks rather than one uncontrolled change.
 
-**Current status: Phase 15 complete — proceeding directly to Phase 16 per the user's standing instruction to work through all remaining phases.**
+**Current status: Phase 16 complete — proceeding directly to Phase 17 per the user's standing instruction to work through all remaining phases.**
 
 ---
 
@@ -1105,12 +1105,107 @@ conventions can't collide.
 
 ## Milestone 4 — Delivery (Phases 16–20)
 
-### Phase 16 · Notifications
+### Phase 16 · Notifications — **complete**
 
-Notification writes on every workflow event, in-app centre, unread badge,
-filters, preferences.
-**Exit**: each of the ten notification types fires exactly once per event; the
-badge count matches the database.
+Built the `notifications` module (`writeNotification`, `enqueueGroupFanout`,
+`listNotifications`, `getUnreadCount`, `markRead`, `markAllRead`,
+`getPreferences`, `updatePreferences`) and wired it into every workflow event
+that already exists in the codebase, plus a real in-app centre replacing the
+shell's placeholder bell and the `/notifications` `ComingSoon` screen.
+
+**`writeNotification` is the one place a `Notification` row gets created —
+mirroring how `writeAudit` is the one place for `AuditLog`.** Every other
+module calls it rather than writing the table directly, and it's also the
+one place a `NotificationPreference` opt-out is honored (`inAppEnabled:
+false` skips the write entirely), so no caller can accidentally bypass a
+recipient's own preference. That table didn't exist yet — API.md documents
+`GET/PATCH /notifications/preferences` but no schema backed it — so this
+phase adds the `NotificationPreference` model (composite `(userId, type)`
+primary key, both channels default `true`) via a real migration, documented
+in DATABASE.md. Absence of a row means both defaults apply, so the read and
+write paths only ever need to check for an explicit `false`.
+
+**Seven of the ten `NotificationType` values are this phase's to fire; the
+other three are a real, already-documented gap, not an oversight.**
+`SLA_WARNING`, `SLA_OVERDUE` and `ESCALATION` depend on `dueAt`/`warningAt`,
+which `submit.ts`'s own doc comment has said since Phase 11 is Phase 19's
+job to compute — there is no due date to compare against yet, so firing
+those three now would mean inventing the trigger condition. The seven this
+phase does own: `POST_SUBMITTED` (to the creator, a durable confirmation —
+no email template names it, unlike the other six, but it's still a real,
+testable event), `APPROVAL_ASSIGNED` (on submit *and* on manual
+reassignment — `assignment.ts`'s `reassignApproval` fires it too, to
+whichever new assignee/group the redirect names), `CHANGES_REQUESTED`,
+`POST_APPROVED`, `POST_REJECTED` (all three to the creator, from
+`decisions.ts`), and `COMMENT_ADDED` (to the post's creator and its current
+open assignee, minus the comment's own author and minus anyone already
+separately notified for the same comment via `COMMENT_MENTION` — no one
+gets double-told about one comment).
+
+A group-routed assignment doesn't write N `Notification` rows inline inside
+the triggering transaction — `enqueueGroupFanout` writes one
+`NOTIFICATION_FANOUT` `BackgroundJob` row instead (the `JobType` value and
+job name ARCHITECTURE.md already named for this), and
+`notifications/jobs.ts` registers the handler that expands group membership
+into individual `writeNotification` calls asynchronously, the same
+register-by-side-effect-import pattern Phase 9 established for attachment
+jobs.
+
+**A real gap surfaced while wiring this in, not invented for this phase:**
+Phase 15's `notifyMentions` wrote `COMMENT_MENTION` rows via a raw
+`tx.notification.createMany`, bypassing `writeNotification` entirely — at
+the time that was the only writer and no preference table existed to
+bypass, but leaving it as-is here would mean mentions are the one
+notification type immune to a recipient's own opt-out. Fixed by routing it
+through `writeNotification` like everything else, one call per recipient.
+
+The bell (`NotificationBell`, built empty in Phase 6) now polls
+`GET /unread-count` every 60 seconds and on mount, shows a real badge, and
+lazily fetches the 10 most recent notifications into its dropdown the first
+time it's opened — polling rather than a push transport, since this stack
+has no realtime channel (WebSockets aren't in CLAUDE.md's permitted
+integrations list, and nothing else here would carry one). The
+`/notifications` screen (UI_UX_SPEC.md §6) has tabs All/Unread/Mentions,
+groups rows by day (Today/Yesterday/date), each row links to the entity —
+the review screen for `APPROVAL_ASSIGNED`, the post itself for everything
+else — and marks itself read on open; "Mark all as read" re-fetches the
+active tab's list rather than patching state in place, so the Unread tab
+actually empties once nothing in it is unread anymore. A preferences table
+underneath lets a user toggle in-app/email per type; email toggles are
+inert until Phase 17 gives them a channel to control, but the toggle itself
+and its persistence are real.
+
+A second real gap surfaced only under the full Playwright suite, not the
+lone spec: `Notification.postId` is `onDelete: SetNull` (a notification
+legitimately survives its post's deletion in production), but the e2e
+suite's `delete-post-by-title.ts` test-cleanup helper only ever deleted the
+`Post` row — leaving an orphaned, postId-null `Notification` behind every
+time a same-titled disposable post got cleaned up. The next run's post
+picked up its own real notification *and* the previous run's orphan,
+rendering as a duplicate dropdown/list row and breaking a strict-mode
+locator. Fixed by having the cleanup script delete that post's
+`Notification` rows first, before the post itself.
+
+- **Exit — verified**: `tests/integration/notifications.test.ts` proves
+  `writeNotification` writes by default and skips on an explicit
+  opt-out; `enqueueGroupFanout` really expands to one notification per
+  group member (looked up by the specific job this test enqueued, not
+  drained blindly off the shared queue — other integration test files also
+  enqueue `NOTIFICATION_FANOUT` jobs via their own group-routed
+  submissions, and vitest runs files in parallel against one database);
+  `listNotifications`'s three filters, `getUnreadCount`, `markRead`
+  (idempotent, 404 for a wrong id), `markAllRead`, and
+  `getPreferences`/`updatePreferences`'s defaults-and-upsert all behave;
+  and each of the seven owned types fires exactly once per its triggering
+  event (submit, approve, request-changes, reject, reassign, comment).
+  `tests/e2e/notifications.spec.ts` drives the real flow in a browser:
+  submitting a post shows the approver a live badge and dropdown row,
+  clicking through from `/notifications` reaches the review screen,
+  approving fires the creator's own notification, and Mark all as read
+  empties the Unread tab. 10 new integration tests and 1 new Playwright
+  spec bring the suite to 274 vitest + 28 Playwright tests, all green
+  repeatably across two full repeats; `lint`, `typecheck`, `format:check`
+  and `build` are clean.
 
 ### Phase 17 · Email
 

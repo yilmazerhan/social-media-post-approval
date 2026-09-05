@@ -104,7 +104,12 @@ test.describe("Post Editor", () => {
     await page.getByLabel("Title").fill("Media upload check post");
 
     const buffer = await sharp({
-      create: { width: 20, height: 20, channels: 3, background: { r: 10, g: 200, b: 10 } },
+      create: {
+        width: 20,
+        height: 20,
+        channels: 3,
+        background: { r: 10, g: 200, b: 10 },
+      },
     })
       .jpeg()
       .toBuffer();

@@ -11,6 +11,7 @@
 import { prisma } from "@/server/db";
 import { NotFoundError, WorkflowError } from "@/server/http/handler";
 import { writeAudit } from "@/modules/audit";
+import { writeNotification, enqueueGroupFanout } from "@/modules/notifications";
 import type { ReassignInput } from "./validation";
 
 export interface ReassignResult {
@@ -25,7 +26,7 @@ export async function reassignApproval(params: {
   await prisma.$transaction(async (tx) => {
     const post = await tx.post.findUnique({
       where: { id: params.postId },
-      select: { status: true },
+      select: { status: true, title: true },
     });
     if (!post) throw new NotFoundError();
 
@@ -84,6 +85,27 @@ export async function reassignApproval(params: {
       },
       tx,
     );
+
+    const assignedNotification = {
+      type: "APPROVAL_ASSIGNED" as const,
+      title: `Approval needed: ${post.title}`,
+      body: `${post.title} needs your review.`,
+      entityType: "Post",
+      entityId: params.postId,
+      postId: params.postId,
+      actorId: params.actorId,
+    };
+    if (params.input.assigneeUserId) {
+      await writeNotification(
+        { ...assignedNotification, recipientId: params.input.assigneeUserId },
+        tx,
+      );
+    } else if (params.input.assigneeGroupId) {
+      await enqueueGroupFanout(
+        { ...assignedNotification, groupId: params.input.assigneeGroupId },
+        tx,
+      );
+    }
   });
 
   if (params.input.assigneeUserId) {

@@ -8,8 +8,8 @@
  * assignment, and record the action.
  *
  * What this deliberately does not do yet: compute `dueAt`/`warningAt`
- * (Phase 19 owns SLA policy math) or send a notification (Phase 16/17) —
- * both real gaps, not faked data.
+ * (Phase 19 owns SLA policy math) or queue an email (Phase 17) — both
+ * real gaps, not faked data.
  */
 import type { ApprovalActionType } from "@/generated/prisma/client";
 import { prisma } from "@/server/db";
@@ -24,6 +24,7 @@ import {
   resolveAssigneeName,
 } from "@/modules/approvals";
 import { writeAudit } from "@/modules/audit";
+import { writeNotification, enqueueGroupFanout } from "@/modules/notifications";
 import { attachToVersion } from "@/modules/attachments";
 import {
   tiptapDocumentSchema,
@@ -185,6 +186,41 @@ export async function submitPost(params: {
       },
       tx,
     );
+
+    await writeNotification(
+      {
+        recipientId: post.creatorId,
+        type: "POST_SUBMITTED",
+        title: `Submitted: ${title}`,
+        body: `Version ${versionNumber} of "${title}" was submitted for approval.`,
+        entityType: "Post",
+        entityId: post.id,
+        postId: post.id,
+        actorId: post.creatorId,
+      },
+      tx,
+    );
+
+    const approvalRequestNotification = {
+      type: "APPROVAL_ASSIGNED" as const,
+      title: `Approval needed: ${title}`,
+      body: `${title} (version ${versionNumber}) needs your review.`,
+      entityType: "Post",
+      entityId: post.id,
+      postId: post.id,
+      actorId: post.creatorId,
+    };
+    if (route.assigneeUserId) {
+      await writeNotification(
+        { ...approvalRequestNotification, recipientId: route.assigneeUserId },
+        tx,
+      );
+    } else if (route.assigneeGroupId) {
+      await enqueueGroupFanout(
+        { ...approvalRequestNotification, groupId: route.assigneeGroupId },
+        tx,
+      );
+    }
 
     const assigneeName = await resolveAssigneeName(route);
 
