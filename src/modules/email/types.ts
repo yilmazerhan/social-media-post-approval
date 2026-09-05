@@ -1,8 +1,10 @@
+import type { TemplateVariables } from "./render";
+
 export interface SendTemplatedEmailInput {
   templateKey: string;
   to: string;
   cc?: string;
-  variables: Record<string, string | number>;
+  variables: TemplateVariables;
   postId?: string | null;
   userId?: string | null;
   /** A repeated call with the same key is a harmless no-op — DATABASE.md §6/7's idempotency pattern for JobSchedule/BackgroundJob, applied to email too. */

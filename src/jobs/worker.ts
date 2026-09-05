@@ -11,9 +11,11 @@
 import "@/modules/attachments/jobs";
 import "@/modules/notifications/jobs";
 import "@/modules/email/jobs";
+import "@/modules/digest/jobs";
 import { config } from "@/server/config";
 import { workerLogger } from "@/server/logger";
 import { pollOnce } from "./queue";
+import { evaluateSchedules } from "./scheduler";
 
 let stopping = false;
 
@@ -29,11 +31,21 @@ async function tick() {
   }
 }
 
+async function schedulerTick() {
+  if (stopping) return;
+  try {
+    await evaluateSchedules();
+  } catch (err) {
+    workerLogger.error({ err }, "scheduler tick failed");
+  }
+}
+
 function main() {
   workerLogger.info(
     {
       workerId: config.WORKER_ID,
       pollIntervalMs: config.WORKER_POLL_INTERVAL_MS,
+      schedulerEnabled: config.SCHEDULER_ENABLED,
     },
     "worker started",
   );
@@ -42,10 +54,17 @@ function main() {
     void tick();
   }, config.WORKER_POLL_INTERVAL_MS);
 
+  const schedulerInterval = config.SCHEDULER_ENABLED
+    ? setInterval(() => {
+        void schedulerTick();
+      }, config.SCHEDULER_TICK_SECONDS * 1000)
+    : null;
+
   const shutdown = (signal: string) => {
     workerLogger.info({ signal }, "worker shutting down");
     stopping = true;
     clearInterval(interval);
+    if (schedulerInterval) clearInterval(schedulerInterval);
     process.exit(0);
   };
 

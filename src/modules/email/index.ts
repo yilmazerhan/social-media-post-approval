@@ -9,3 +9,4 @@
 export { sendTemplatedEmail, sendTestEmail } from "./service";
 export type { SendTemplatedEmailInput, EmailSendJobPayload } from "./types";
 export { sendTestEmailSchema, type SendTestEmailInput } from "./validation";
+export { escapeHtml, rawHtml, RawHtml, type TemplateVariables } from "./render";

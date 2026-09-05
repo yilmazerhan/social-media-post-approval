@@ -4,7 +4,7 @@ The build order, what "done" means at each step, and where we currently are.
 The 28 phases from the master specification are grouped into seven milestones so
 progress is reviewable in meaningful chunks rather than one uncontrolled change.
 
-**Current status: Phase 17 complete — proceeding directly to Phase 18 per the user's standing instruction to work through all remaining phases.**
+**Current status: Phase 18 complete — proceeding directly to Phase 19 per the user's standing instruction to work through all remaining phases.**
 
 ---
 
@@ -1290,12 +1290,69 @@ and fixed) — scoped to the heading role.
   `logger.ts`'s existing redaction list and nothing in this phase logs a
   raw config object.
 
-### Phase 18 · Daily digest
+### Phase 18 · Daily digest — **complete**
 
-One consolidated digest per approver at the configured hour and timezone, with
-the pending list, waiting times, SLA state and direct review links.
-**Exit**: a scheduled run produces one email per approver with pending work and
-none for approvers without; a repeated tick does not double-send.
+Built the generic scheduler ARCHITECTURE.md §7 had only ever described
+(`src/jobs/scheduler.ts` was a stub before this phase — no `JobSchedule`
+row had ever actually been evaluated) and the `digest` module
+(`runDailyDigest`) that its `daily-digest` schedule now really drives.
+
+**The scheduler is generic, not digest-specific — it evaluates every
+enabled `JobSchedule` row the same way, using `cron-parser` for the
+cron/timezone math ARCHITECTURE.md's design always assumed but nothing
+implemented.** For each row it computes the most recent due slot at-or-before
+now; if that slot differs from `lastEnqueuedSlot` it enqueues one
+`BackgroundJob` with `idempotencyKey: "<scheduleKey>:<slotIso>"` and
+updates `lastEnqueuedSlot`/`lastRunAt`/`nextRunAt`. The double-enqueue
+guard is that `idempotencyKey`'s own unique constraint, not an in-process
+check — ARCHITECTURE.md is explicit that the worker is "stateless and
+independently restartable," so more than one instance can legitimately
+tick at once, and only a database-level constraint is actually safe
+against that race. `src/jobs/worker.ts` now runs this on its own tick
+(`SCHEDULER_TICK_SECONDS`), separate from the job-claim loop, gated on
+`SCHEDULER_ENABLED`. This also means the five other already-seeded
+schedules (`sla-check`, `retention-cleanup`, `orphan-attachment-cleanup`,
+`temp-file-cleanup`, `session-cleanup`) start being evaluated too; the two
+with handlers already registered (Phase 9's attachment cleanups) start
+actually running, and the three without one yet (SLA, retention, session
+cleanup — later phases' jobs) enqueue harmlessly into `DEAD` via the
+queue's own existing "no handler registered" path until their phases land.
+
+`runDailyDigest` finds every open `ApprovalAssignment`, expands
+group-routed ones into their current members (the same membership
+expansion `NOTIFICATION_FANOUT` already does), and groups the result by
+recipient — one `daily_digest` email per approver who actually has
+something pending, none for one who doesn't. Each pending item's waiting
+time is `date-fns`'s `formatDistanceToNow` against the post's own
+`submittedAt`; "SLA state" reads the same `dueAt` the queue and dashboard
+already do — always `null` until Phase 19 computes it, so an item just
+shows no due date yet rather than a fabricated one, the same real,
+documented gap this project has carried since Phase 13. Idempotency is
+per-recipient, not just per-schedule-slot: `digest:<date>:<userId>`, so a
+retried or manually re-run `DAILY_DIGEST` job can't double-mail one
+approver even though the outer schedule slot only guards the job itself.
+
+**A real templating gap surfaced building this: `renderTemplate` escaped
+every interpolated value, but `daily_digest`'s own seeded template
+(`{{items}}`) expects a pre-built `<ul>` list, not a scalar — escaping it
+would have printed literal `&lt;ul&gt;...` in every digest.** Rather than
+special-case this one template, `email/render.ts` gained a small `RawHtml`
+wrapper (`rawHtml(value)`): a variable wrapped in it is embedded verbatim
+instead of escaped, and the caller building one is responsible for
+escaping any untrusted text folded into it first — `digest/service.ts`
+escapes each post title via the same `escapeHtml` `render.ts` already used
+internally (now exported) before assembling the list, so a post titled
+with HTML still can't inject anything into the digest.
+
+- **Exit — verified**: `tests/integration/scheduler.test.ts` proves a due
+  schedule enqueues exactly one job (a repeated tick in the same slot
+  doesn't double-enqueue) and a disabled schedule enqueues nothing.
+  `tests/integration/digest.test.ts` proves an approver with an open
+  assignment gets exactly one `daily_digest` `EmailLog`, an approver with
+  none gets none, and running the digest twice for the same day doesn't
+  double-send the same approver. 6 new integration tests bring the suite
+  to 288 vitest + 28 Playwright tests, all green across repeated runs;
+  `lint`, `typecheck`, `format:check` and `build` are clean.
 
 ### Phase 19 · SLA and escalation
 
