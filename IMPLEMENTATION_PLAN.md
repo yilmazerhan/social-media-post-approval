@@ -4,7 +4,7 @@ The build order, what "done" means at each step, and where we currently are.
 The 28 phases from the master specification are grouped into seven milestones so
 progress is reviewable in meaningful chunks rather than one uncontrolled change.
 
-**Current status: Phase 13 complete — proceeding directly to Phase 14 per the user's standing instruction to work through all remaining phases.**
+**Current status: Phase 14 complete — proceeding directly to Phase 15 per the user's standing instruction to work through all remaining phases.**
 
 ---
 
@@ -958,15 +958,72 @@ from an earlier phase, not one this phase's exit criterion touches.
   tests, all green repeatably; `lint`, `typecheck`, `format:check` and
   `build` are clean.
 
-### Phase 14 · Approval Review (hero screen B)
+### Phase 14 · Approval Review (hero screen B) — **complete**
 
-The full screen from §5 of `UI_UX_SPEC.md`: five-second header, tabs, version
-comparison, sticky decision panel, mandatory comments, confirmation restating
-the version, concurrency banner, keyboard shortcuts, prev/next navigation,
-post-decision result.
-**Exit**: an approver decides without leaving the page; a stale version decision
-is refused with `ALREADY_DECIDED`; the mobile bottom-sheet decision flow works
-and cannot approve accidentally; the word "AI" appears nowhere.
+Built `approvals/review.ts` (`getApprovalReviewPayload`, `loadApprovalReadResource`,
+`getNextInQueue`) and the real screen at `/approvals/:postId`: the
+five-second header (status, priority, version, waiting time, creator,
+department, submission time, assignee), Preview/Compare/Attachments tabs,
+a sticky decision panel (bottom sheet on mobile) with the three actions,
+a mandatory-for-changes-and-rejection comment field, a confirmation
+dialog restating the exact version, a concurrency-poll banner, `A`/`C`/`R`
+keyboard shortcuts (each still opening the confirmation, never deciding
+directly) plus `K` for next-in-queue and `?` for shortcut help, and the
+post-decision inline result with "Next in queue." `GET /:postId`'s
+authorization genuinely needs `checkApprovalRead`'s resource-scoped
+policy (a department peer or `POST_READ_ALL` holder may read the review;
+only the real assignee gets `capabilities.canDecide`) — unlike Phase 13's
+queue, which deliberately bypasses it; the header carries a specific
+`capabilities.reason` (creator / already decided / not the assignee) so
+the client never has to reverse-engineer which of UI_UX_SPEC.md §5's
+three disabled-tooltip cases applies. `Compare` shows one diff — previous
+version to the version under review, via the same `compareVersions`
+Phase 10 built — not an arbitrary-pair selector: API.md's payload names
+one "diff," and the richer selector already exists only for the post's
+own creator at `/api/v1/posts/:id/versions/compare` (`POST_READ_OWN`),
+which an approver never holds for someone else's post; reopening that
+endpoint's authorization is a real, separately-recorded gap, not this
+phase's to fix. `K` alone covers "next" for the same reason — API.md's
+`/next` has no "previous" counterpart to wire `J` to.
+
+Two real bugs surfaced only by driving the screen through a real browser,
+not by the vitest suite (same pattern as Phase 9's Turbopack issue and
+Phase 13's `APPROVAL_READ` dispatch bug): first, Phase 13's queue linked
+each row to `/posts/:id` (Post Details) because `/approvals/:postId`
+didn't exist yet when that phase shipped — now that it does, the queue's
+own row link had to move to it, or the whole point of a "queue" (click a
+row, review it) wouldn't hold. Second, opening a `SUBMITTED` post's
+review screen tried to decide against it directly, but every decision
+transition requires `IN_REVIEW` (state-machine.ts has no `SUBMITTED →
+APPROVE` row) — API.md documents `start-review` as idempotent precisely
+so a screen can call it on open, so the page now does exactly that, but
+only when `capabilities.canDecide` is true first: calling it unconditionally
+for any department-peer viewer would start the SLA clock and advance
+workflow state from a merely-reading visitor, which nothing here permits.
+
+The named exit criterion "a stale version decision is refused with
+`ALREADY_DECIDED`" is Phase 11's own transactional guarantee
+(`approvals-decisions.test.ts` already proves it against `approvePost`
+directly, `postVersionId` mismatch after the row lock); this screen
+always submits the `postVersionId` it loaded, so the same guarantee
+applies through it without a redundant end-to-end race test invented
+just to re-prove machinery Phase 11 already covers.
+
+- **Exit — verified**: `tests/integration/approval-review.test.ts` covers
+  the payload for a single-version post (`canDecide` true for the real
+  assignee, no diff), the previous→current diff once a second version
+  exists, `canDecide` false for both the creator and an unrelated
+  approver, and `null` for a never-submitted post. `tests/e2e/approval-review.spec.ts`
+  drives the real screen in a browser: the five-second header and Compare
+  tab against the seeded hero fixture; a fresh, disposable post (never the
+  shared hero fixture — approving or rejecting that one would corrupt the
+  exact `IN_REVIEW` state `post-details.spec.ts` and `approval-queue.spec.ts`
+  pin to) carried through approve-without-leaving-the-page, request-changes'
+  mandatory-comment enforcement, and the mobile bottom-sheet's reject
+  path; plus a dedicated axe pass. 5 new vitest tests and 1 new Playwright
+  spec (5 tests) bring the suite to 250 vitest + 26 Playwright tests, all
+  green repeatably; `lint`, `typecheck`, `format:check` and `build` are
+  clean. Grep of the diff confirms "AI" appears nowhere.
 
 ### Phase 15 · Comments and collaboration
 

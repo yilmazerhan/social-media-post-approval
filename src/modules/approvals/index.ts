@@ -28,6 +28,13 @@ export {
   type QueueRow,
   type QueuePage,
 } from "./queue";
+export {
+  loadApprovalReadResource,
+  getApprovalReviewPayload,
+  getNextInQueue,
+  type ApprovalReviewDto,
+  type ApprovalReviewHeader,
+} from "./review";
 export { assertLegalTransition } from "./state-machine";
 export {
   startReview,

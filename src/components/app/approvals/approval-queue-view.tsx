@@ -219,7 +219,7 @@ export function ApprovalQueueView({
       header: "Title",
       cell: ({ row }) => (
         <Link
-          href={`/posts/${row.original.postId}`}
+          href={`/approvals/${row.original.postId}`}
           className="font-medium hover:underline"
         >
           {row.original.title || row.original.reference}
