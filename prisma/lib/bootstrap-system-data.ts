@@ -10,117 +10,14 @@
  */
 import type { PrismaClient } from "@/generated/prisma/client";
 import { config } from "@/server/config";
+import {
+  PERMISSIONS,
+  type PermissionKey,
+} from "@/modules/authorization/permissions";
 
-export const PERMISSIONS: Array<{
-  key: string;
-  category: string;
-  description: string;
-}> = [
-  { key: "POST_CREATE", category: "posts", description: "Create a new post" },
-  {
-    key: "POST_READ_OWN",
-    category: "posts",
-    description: "Read your own posts",
-  },
-  { key: "POST_READ_ALL", category: "posts", description: "Read any post" },
-  {
-    key: "POST_EDIT_OWN",
-    category: "posts",
-    description: "Edit your own draft or returned post",
-  },
-  { key: "POST_EDIT_ALL", category: "posts", description: "Edit any post" },
-  {
-    key: "POST_DELETE_OWN",
-    category: "posts",
-    description: "Delete your own draft",
-  },
-  {
-    key: "POST_SUBMIT",
-    category: "posts",
-    description: "Submit a post for approval",
-  },
-  {
-    key: "POST_APPROVE",
-    category: "approvals",
-    description: "Approve a post version",
-  },
-  {
-    key: "POST_REJECT",
-    category: "approvals",
-    description: "Reject a post version",
-  },
-  {
-    key: "POST_REQUEST_CHANGES",
-    category: "approvals",
-    description: "Request changes on a post version",
-  },
-  { key: "POST_COMMENT", category: "posts", description: "Comment on a post" },
-  {
-    key: "POST_CANCEL",
-    category: "posts",
-    description: "Cancel your own post",
-  },
-  {
-    key: "APPROVAL_READ",
-    category: "approvals",
-    description: "View the approval queue",
-  },
-  {
-    key: "APPROVAL_ASSIGN",
-    category: "approvals",
-    description: "Assign or reassign an approver",
-  },
-  {
-    key: "APPROVAL_REASSIGN",
-    category: "approvals",
-    description: "Reassign an in-flight approval",
-  },
-  { key: "USER_READ", category: "administration", description: "View users" },
-  {
-    key: "USER_MANAGE",
-    category: "administration",
-    description: "Create, disable and configure users",
-  },
-  {
-    key: "ROLE_MANAGE",
-    category: "administration",
-    description: "Manage roles and permission grants",
-  },
-  {
-    key: "GROUP_MANAGE",
-    category: "administration",
-    description: "Manage groups",
-  },
-  {
-    key: "DEPARTMENT_MANAGE",
-    category: "administration",
-    description: "Manage departments",
-  },
-  { key: "REPORT_READ", category: "reports", description: "View reports" },
-  { key: "AUDIT_READ", category: "audit", description: "View the audit log" },
-  {
-    key: "RETENTION_MANAGE",
-    category: "administration",
-    description: "Configure and run retention",
-  },
-  {
-    key: "SETTINGS_MANAGE",
-    category: "administration",
-    description: "Change system settings",
-  },
-  {
-    key: "JOB_MANAGE",
-    category: "administration",
-    description: "View and retry background jobs",
-  },
-  {
-    key: "EMAIL_MANAGE",
-    category: "administration",
-    description: "Configure email and templates",
-  },
-];
+export { PERMISSIONS };
 
-const EMPLOYEE_PERMISSIONS = [
+const EMPLOYEE_PERMISSIONS: PermissionKey[] = [
   "POST_CREATE",
   "POST_READ_OWN",
   "POST_EDIT_OWN",
@@ -130,7 +27,7 @@ const EMPLOYEE_PERMISSIONS = [
   "POST_CANCEL",
 ];
 
-const APPROVER_PERMISSIONS = [
+const APPROVER_PERMISSIONS: PermissionKey[] = [
   ...EMPLOYEE_PERMISSIONS,
   "POST_READ_ALL",
   "POST_APPROVE",
@@ -142,12 +39,12 @@ const APPROVER_PERMISSIONS = [
   "REPORT_READ",
 ];
 
-const ADMIN_PERMISSIONS = PERMISSIONS.map((p) => p.key);
+const ADMIN_PERMISSIONS: PermissionKey[] = PERMISSIONS.map((p) => p.key);
 
 export const ROLES: Array<{
   key: string;
   name: string;
-  permissions: string[];
+  permissions: PermissionKey[];
 }> = [
   { key: "EMPLOYEE", name: "Employee", permissions: EMPLOYEE_PERMISSIONS },
   { key: "APPROVER", name: "Approver", permissions: APPROVER_PERMISSIONS },

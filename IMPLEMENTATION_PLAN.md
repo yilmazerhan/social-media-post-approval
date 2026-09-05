@@ -4,7 +4,7 @@ The build order, what "done" means at each step, and where we currently are.
 The 28 phases from the master specification are grouped into seven milestones so
 progress is reviewable in meaningful chunks rather than one uncontrolled change.
 
-**Current status: Phase 4 complete — awaiting the go-ahead to start Phase 5.**
+**Current status: Phase 5 complete — awaiting the go-ahead to start Phase 6.**
 
 ---
 
@@ -246,14 +246,78 @@ saml-acs.test.ts` (14 tests) signs fake IdP responses with a throwaway
   automated tests pass repeatably across three consecutive runs; `lint`,
   `typecheck`, `format:check` and `build` are all still clean.
 
-### Phase 5 · RBAC and authorization
+### Phase 5 · RBAC and authorization — **complete**
 
-- Permission catalogue seeded; `authorization.can/assert`; resource policies;
-  capability serialisation for the UI; the protected-handler wrapper enforcing
-  the five-step sequence.
-- **Exit**: the permission × role × ownership unit matrix passes; every existing
-  endpoint goes through `assert`; negative tests confirm employee-cannot-approve
-  and cross-user-draft-access failures.
+Delivered: the permission catalogue (`src/modules/authorization/permissions.ts`)
+is now the single source of truth — a `PERMISSIONS` const array plus the
+derived `PermissionKey` union type — and `prisma/lib/bootstrap-system-data.ts`
+imports it instead of keeping its own copy, so the database and the type
+system can never drift apart; its `ROLES`/`EMPLOYEE_PERMISSIONS`/
+`APPROVER_PERMISSIONS`/`ADMIN_PERMISSIONS` are now typed `PermissionKey[]`
+too, so a typo in a default grant is a compile error instead of a silent
+no-op. `modules/authorization` implements AUTHENTICATION.md §5 exactly:
+`can`/`assert` are pure, synchronous decision functions — a grant check
+first, then (only for the three permission groups the spec scopes) a
+resource policy — `checkOwnedPost` (`POST_READ_OWN`/`POST_EDIT_OWN` against
+`creatorId`), `checkApprovalAction` (`POST_APPROVE`/`POST_REJECT`/
+`POST_REQUEST_CHANGES` against an _open_ assignment — PENDING or
+IN_PROGRESS, matching the partial unique index from Phase 3 exactly —
+targeting the user directly or via a group, on the version under review,
+never the post's own creator), and `checkApprovalRead` (`APPROVAL_READ`:
+assigned, same department, or a `POST_READ_ALL` bypass). Every other
+catalogued permission is grant-only by design, per spec — not an
+oversight; nothing invents a policy AUTHENTICATION.md doesn't document.
+`loadAuthorizedUser(userId)` resolves granted permissions, group
+membership and department in one shot so a decision never triggers a
+surprise query, and `serializeGrants` turns the grant-only half into a
+plain `Record<PermissionKey, boolean>` for UI nav gating — "the button and
+the server can never disagree" because both read the same resolved set.
+
+`src/server/http/handler.ts` is the reusable wrapper ARCHITECTURE.md §3
+names: `protectedHandler(options, execute)` resolves the session (401),
+checks CSRF (403, `requireToken: true` by default — every route behind it
+acts on an existing session), parses and validates the body with Zod
+(422, matching Phase 4's existing detail shape exactly), optionally loads
+the acted-on resource (404 if it resolves to nothing, _before_ ever
+reaching authorization — an IDOR attempt fails on a loaded check, never a
+missing one), asserts the permission (403), and runs an optional workflow
+guard (409, with the specific `INVALID_TRANSITION`/`ALREADY_DECIDED`/
+`STALE_RESOURCE` code) before calling `execute`. Execute — and any audit
+row it writes inside its own transaction — stays the caller's job, exactly
+as CLAUDE.md's house rule and ARCHITECTURE.md's "the service owns the
+transaction" both already say; the wrapper only owns the cross-cutting
+steps ahead of it. No endpoint uses this yet: Posts and Approvals don't
+exist until Phase 8/11, and the 12 auth endpoints from Phase 4 are all
+self-service (session/password management) and correspond to no
+catalogued permission, so "every existing endpoint goes through `assert`"
+holds vacuously today — a scoping fact worth recording, not a shortcut.
+The wrapper is instead proven directly, the same way Phase 4 proved
+`processSamlAcs` before any UI called it.
+
+- **Exit — verified**: `tests/unit/authorization.test.ts` (24 tests) is the
+  permission × role × ownership matrix — every grant-only permission
+  denied/allowed by grant alone, both scoped-permission policies exercised
+  through every branch (owned vs. cross-user, direct vs. group assignment,
+  self-approval always denied, non-open statuses denied, wrong-version
+  denied, no-assignment denied, department/POST_READ_ALL/assignment paths
+  for `APPROVAL_READ`), and the EMPLOYEE/APPROVER/ADMIN default grants
+  checked against AUTHENTICATION.md's table directly — plus the two exact
+  scenarios the exit criteria name: an employee denied `POST_APPROVE`
+  because the grant itself is absent, and cross-user draft access denied
+  despite holding `POST_EDIT_OWN`. `tests/integration/authorization-
+roles.test.ts` (7 tests) re-proves the same grants against the real
+  seeded `RolePermission` rows (catching drift a unit test against the
+  `ROLES` constant alone couldn't) and exercises `loadAuthorizedUser`'s
+  actual query path — permissions, department and group membership — over
+  real users. `tests/integration/protected-handler.test.ts` (12 tests)
+  drives the wrapper through real `NextRequest`s end to end: 401
+  unauthenticated, 403 missing CSRF token, 422 invalid body, 404 an
+  unresolved resource, 403 cross-user draft access and employee-cannot-
+  approve (again, now through the full HTTP pipeline), 200 on success, 404
+  and 409 from thrown `NotFoundError`/`WorkflowError`, and a 500 that logs
+  the real error but never leaks it to the client. 107 automated tests
+  pass repeatably across three consecutive runs; `lint`, `typecheck`,
+  `format:check`, `build` and `test:e2e` are all still clean.
 
 ---
 
