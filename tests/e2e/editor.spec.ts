@@ -74,8 +74,13 @@ test.describe("Post Editor", () => {
     await expect(submitDialog.getByText(/Jane Manager/)).toBeVisible();
     await submitDialog.getByRole("button", { name: "Submit" }).click();
 
+    // Scoped to the heading role — Next.js's route-announcer div can carry
+    // the same text and otherwise trips a strict-mode violation (the same
+    // fix approval-review.spec.ts's own submit helper already applies).
     await expect(
-      page.getByText("Your post has been submitted for approval."),
+      page.getByRole("heading", {
+        name: "Your post has been submitted for approval.",
+      }),
     ).toBeVisible();
     await expect(page.getByText(/Version 1/)).toBeVisible();
     await expect(page.getByText(/Assigned to Jane Manager/)).toBeVisible();

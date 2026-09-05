@@ -13,6 +13,7 @@
  */
 import type { ApprovalActionType } from "@/generated/prisma/client";
 import { prisma } from "@/server/db";
+import { config } from "@/server/config";
 import {
   WorkflowError,
   NotFoundError,
@@ -201,6 +202,10 @@ export async function submitPost(params: {
       tx,
     );
 
+    const creator = await tx.user.findUniqueOrThrow({
+      where: { id: post.creatorId },
+      select: { displayName: true },
+    });
     const approvalRequestNotification = {
       type: "APPROVAL_ASSIGNED" as const,
       title: `Approval needed: ${title}`,
@@ -209,6 +214,15 @@ export async function submitPost(params: {
       entityId: post.id,
       postId: post.id,
       actorId: post.creatorId,
+      email: {
+        templateKey: "new_approval_request",
+        variables: {
+          creatorName: creator.displayName,
+          postTitle: title,
+          version: versionNumber,
+          reviewUrl: `${config.APP_URL}/approvals/${post.id}`,
+        },
+      },
     };
     if (route.assigneeUserId) {
       await writeNotification(

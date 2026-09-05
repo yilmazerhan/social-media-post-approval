@@ -48,9 +48,10 @@ export async function claimNextJob(
   });
 }
 
-/** Exponential backoff, capped at an hour. */
-function backoffSeconds(attempts: number): number {
-  return Math.min(2 ** attempts * 30, 3600);
+/** Exponential backoff, capped at an hour. Most job types share one 30s base; EMAIL_SEND uses CONFIGURATION.md's own EMAIL_RETRY_BASE_SECONDS instead. */
+function backoffSeconds(type: JobType, attempts: number): number {
+  const base = type === "EMAIL_SEND" ? config.EMAIL_RETRY_BASE_SECONDS : 30;
+  return Math.min(2 ** attempts * base, 3600);
 }
 
 export async function runClaimedJob(job: BackgroundJob): Promise<void> {
@@ -94,7 +95,9 @@ export async function runClaimedJob(job: BackgroundJob): Promise<void> {
       data: {
         status: "PENDING",
         lastError: message,
-        scheduledAt: new Date(Date.now() + backoffSeconds(job.attempts) * 1000),
+        scheduledAt: new Date(
+          Date.now() + backoffSeconds(job.type, job.attempts) * 1000,
+        ),
       },
     });
   }

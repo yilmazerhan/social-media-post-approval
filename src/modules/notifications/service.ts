@@ -13,6 +13,7 @@ import type {
 } from "@/generated/prisma/client";
 import { prisma } from "@/server/db";
 import { NotFoundError } from "@/server/http/handler";
+import { sendTemplatedEmail } from "@/modules/email";
 import type { NotificationDto, NotificationPreferenceDto } from "./types";
 
 /** The full catalogue — mirrors `enum NotificationType` in schema.prisma exactly, the same "canonical array" pattern `PERMISSIONS` uses. */
@@ -38,31 +39,53 @@ export interface WriteNotificationInput {
   entityId: string;
   postId?: string | null;
   actorId?: string | null;
+  /** When this type has a matching EmailTemplate, the same one row's `emailEnabled` column decides whether this event also queues an email — one preference row, two channels. */
+  email?: { templateKey: string; variables: Record<string, string | number> };
 }
 
-/** Skips the write entirely when the recipient has turned this type's in-app notifications off — never writes a row nobody wants to see. */
+/** Skips the in-app write when the recipient has turned this type's in-app notifications off, and skips the email queue the same way for `emailEnabled` — one preference row, one call site, both channels. */
 export async function writeNotification(
   input: WriteNotificationInput,
   client: PrismaClient | Prisma.TransactionClient = prisma,
 ): Promise<void> {
   const preference = await client.notificationPreference.findUnique({
     where: { userId_type: { userId: input.recipientId, type: input.type } },
-    select: { inAppEnabled: true },
+    select: { inAppEnabled: true, emailEnabled: true },
   });
-  if (preference && !preference.inAppEnabled) return;
 
-  await client.notification.create({
-    data: {
-      recipientId: input.recipientId,
-      type: input.type,
-      title: input.title,
-      body: input.body,
-      entityType: input.entityType,
-      entityId: input.entityId,
-      postId: input.postId ?? undefined,
-      actorId: input.actorId ?? undefined,
-    },
-  });
+  if (!preference || preference.inAppEnabled) {
+    await client.notification.create({
+      data: {
+        recipientId: input.recipientId,
+        type: input.type,
+        title: input.title,
+        body: input.body,
+        entityType: input.entityType,
+        entityId: input.entityId,
+        postId: input.postId ?? undefined,
+        actorId: input.actorId ?? undefined,
+      },
+    });
+  }
+
+  if (input.email && (!preference || preference.emailEnabled)) {
+    const recipient = await client.user.findUnique({
+      where: { id: input.recipientId },
+      select: { email: true },
+    });
+    if (recipient) {
+      await sendTemplatedEmail(
+        {
+          templateKey: input.email.templateKey,
+          to: recipient.email,
+          variables: input.email.variables,
+          postId: input.postId,
+          userId: input.recipientId,
+        },
+        client,
+      );
+    }
+  }
 }
 
 /** Group-assignment case: ARCHITECTURE.md's `NOTIFICATION_FANOUT` job expands group membership into individual `writeNotification` calls asynchronously, instead of writing N rows inside the triggering transaction. */

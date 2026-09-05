@@ -19,6 +19,7 @@ interface FanoutPayload {
   entityId: string;
   postId?: string | null;
   actorId?: string | null;
+  email?: { templateKey: string; variables: Record<string, string | number> };
 }
 
 function isFanoutPayload(value: unknown): value is FanoutPayload {
@@ -48,6 +49,7 @@ registerJobHandler("NOTIFICATION_FANOUT", async (payload) => {
       entityId: payload.entityId,
       postId: payload.postId,
       actorId: payload.actorId,
+      email: payload.email,
     });
   }
 });

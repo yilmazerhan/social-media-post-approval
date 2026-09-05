@@ -1,14 +1,15 @@
 /**
  * Password reset — AUTHENTICATION.md §2. The request side never reveals
  * whether an email exists; the caller (route handler) must return the
- * same response either way. Delivery is a real BackgroundJob (EMAIL_SEND)
- * — Phase 17 builds the worker that actually sends it; enqueuing the job
- * now is the correct, not a stubbed, half of this feature.
+ * same response either way. Delivery goes through `EmailService`
+ * (Phase 17's `sendTemplatedEmail`) exactly like every other templated
+ * email in the system.
  */
 import { randomBytes, createHash } from "node:crypto";
 import { prisma } from "@/server/db";
 import { config } from "@/server/config";
 import { writeAudit } from "@/modules/audit";
+import { sendTemplatedEmail } from "@/modules/email";
 import type { User } from "@/generated/prisma/client";
 import { hashPassword } from "./password";
 import { checkPasswordPolicy } from "./password-policy";
@@ -49,19 +50,15 @@ export async function requestPasswordReset(
     },
   });
 
-  await prisma.backgroundJob.create({
-    data: {
-      type: "EMAIL_SEND",
-      payload: {
-        templateKey: "password_reset",
-        to: user.email,
-        variables: {
-          appName: config.APP_NAME,
-          resetUrl: `${config.APP_URL}/reset-password?token=${rawToken}`,
-          ttlMinutes: config.PASSWORD_RESET_TTL_MINUTES,
-        },
-      },
+  await sendTemplatedEmail({
+    templateKey: "password_reset",
+    to: user.email,
+    variables: {
+      appName: config.APP_NAME,
+      resetUrl: `${config.APP_URL}/reset-password?token=${rawToken}`,
+      ttlMinutes: config.PASSWORD_RESET_TTL_MINUTES,
     },
+    userId: user.id,
   });
 
   await writeAudit({

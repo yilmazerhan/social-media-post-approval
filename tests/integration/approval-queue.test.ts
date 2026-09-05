@@ -207,7 +207,15 @@ describe("getApprovalQueue", () => {
 
     const now = new Date();
     const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-    const laterToday = new Date(now.getTime() + 60 * 60 * 1000);
+    // `now + 1h` can spill into tomorrow when the suite runs late in the
+    // day — clamp to just before local midnight so this stays "later
+    // today" (matching queue.ts's own local-timezone day boundary)
+    // regardless of what time the suite happens to run.
+    const endOfToday = new Date(now);
+    endOfToday.setHours(23, 59, 59, 0);
+    const laterToday = new Date(
+      Math.min(now.getTime() + 60 * 60 * 1000, endOfToday.getTime() - 1000),
+    );
     const nextWeek = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
 
     await prisma.approvalAssignment.updateMany({

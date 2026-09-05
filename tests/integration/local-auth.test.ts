@@ -221,25 +221,38 @@ describe("password reset", () => {
     });
     createdSessionIds.push(oldSession.id);
 
-    await requestPasswordReset(user.email);
+    // EMAIL_ENABLED is false in this test environment (sendTemplatedEmail
+    // suppresses delivery and queues no job at all in that case) — this
+    // one flow needs the real job's rendered body to recover the reset
+    // URL, so it flips the flag for just this call.
+    const originalEmailEnabled = config.EMAIL_ENABLED;
+    config.EMAIL_ENABLED = true;
+    try {
+      await requestPasswordReset(user.email);
+    } finally {
+      config.EMAIL_ENABLED = originalEmailEnabled;
+    }
 
     const tokenRow = await prisma.passwordResetToken.findFirstOrThrow({
       where: { userId: user.id },
     });
     createdResetTokenIds.push(tokenRow.id);
 
-    const job = await prisma.backgroundJob.findFirstOrThrow({
-      where: { type: "EMAIL_SEND" },
-      orderBy: { createdAt: "desc" },
+    const log = await prisma.emailLog.findFirstOrThrow({
+      where: { templateKey: "password_reset", toAddress: user.email },
+      orderBy: { queuedAt: "desc" },
+    });
+    if (log.jobId === null) throw new Error("email log carried no jobId");
+    const job = await prisma.backgroundJob.findUniqueOrThrow({
+      where: { id: log.jobId },
     });
     createdJobIds.push(job.id);
-    const payload = job.payload as {
-      to: string;
-      variables: { resetUrl: string };
-    };
+    const payload = job.payload as { to: string; html: string };
     expect(payload.to).toBe(user.email);
 
-    const rawToken = extractResetToken(payload.variables.resetUrl);
+    const hrefMatch = payload.html.match(/href="([^"]+)"/);
+    if (!hrefMatch) throw new Error("rendered email carried no reset link");
+    const rawToken = extractResetToken(hrefMatch[1]);
     expect(hashResetToken(rawToken)).toBe(tokenRow.tokenHash);
 
     // A policy-violating password leaves the token unused.

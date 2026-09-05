@@ -4,7 +4,7 @@ The build order, what "done" means at each step, and where we currently are.
 The 28 phases from the master specification are grouped into seven milestones so
 progress is reviewable in meaningful chunks rather than one uncontrolled change.
 
-**Current status: Phase 16 complete — proceeding directly to Phase 17 per the user's standing instruction to work through all remaining phases.**
+**Current status: Phase 17 complete — proceeding directly to Phase 18 per the user's standing instruction to work through all remaining phases.**
 
 ---
 
@@ -1133,7 +1133,7 @@ job to compute — there is no due date to compare against yet, so firing
 those three now would mean inventing the trigger condition. The seven this
 phase does own: `POST_SUBMITTED` (to the creator, a durable confirmation —
 no email template names it, unlike the other six, but it's still a real,
-testable event), `APPROVAL_ASSIGNED` (on submit *and* on manual
+testable event), `APPROVAL_ASSIGNED` (on submit _and_ on manual
 reassignment — `assignment.ts`'s `reassignApproval` fires it too, to
 whichever new assignee/group the redirect names), `CHANGES_REQUESTED`,
 `POST_APPROVED`, `POST_REJECTED` (all three to the creator, from
@@ -1181,7 +1181,7 @@ legitimately survives its post's deletion in production), but the e2e
 suite's `delete-post-by-title.ts` test-cleanup helper only ever deleted the
 `Post` row — leaving an orphaned, postId-null `Notification` behind every
 time a same-titled disposable post got cleaned up. The next run's post
-picked up its own real notification *and* the previous run's orphan,
+picked up its own real notification _and_ the previous run's orphan,
 rendering as a duplicate dropdown/list row and breaking a strict-mode
 locator. Fixed by having the cleanup script delete that post's
 `Notification` rows first, before the post itself.
@@ -1207,12 +1207,88 @@ locator. Fixed by having the cleanup script delete that post's
   repeatably across two full repeats; `lint`, `typecheck`, `format:check`
   and `build` are clean.
 
-### Phase 17 · Email
+### Phase 17 · Email — **complete**
 
-`EmailService`, `SMTPEmailProvider`, template rendering and escaping,
-`EmailLog`, retry with backoff, idempotency, admin test-send.
-**Exit**: all eight required emails render and queue; SMTP failure retries and
-records `lastError`; no credential ever reaches a log.
+Built the `email` module (`sendTemplatedEmail`, `sendTestEmail`,
+`renderTemplate`, `SMTPEmailProvider`) and wired every already-existing
+event that has a template to it: `new_approval_request` (submit),
+`post_approved`/`changes_requested`/`post_rejected` (the three decisions),
+and `password_reset` (Phase 4's reset flow, now going through the real
+service instead of hand-rolling its own `BackgroundJob`).
+
+**Rendering happens once, at enqueue time — the worker only ever
+delivers.** `sendTemplatedEmail` looks up the `EmailTemplate`, renders the
+subject and body with `renderTemplate` (escaping every interpolated value
+in an HTML template; a plain-text template's values pass through
+unescaped; a subject's values are stripped of `\r\n` regardless — a
+newline in a variable could otherwise inject extra headers into a raw
+SMTP line), writes an `EmailLog` row (`QUEUED`, subject only — DATABASE.md
+is explicit that bodies aren't retained), and queues one `EMAIL_SEND`
+`BackgroundJob` carrying the fully-rendered `to`/`subject`/`html`/`text`.
+The worker's registered handler (`email/jobs.ts`) does nothing but attempt
+delivery and flip the `EmailLog` to `SENT`/`FAILED` — it never re-reads the
+template, so a template edited by an admin between enqueue and send can't
+retroactively change what was already logged as queued. An unrecognized
+`{{token}}` is left in place rather than thrown on, so a typo in an
+admin-edited template degrades instead of blocking every send of that
+type. `EMAIL_ENABLED=false` (this repo's own `.env` default, "useful in
+staging") short-circuits at enqueue time into a `SUPPRESSED` log row and
+queues no job at all — the same shape SMTP delivery is disabled in every
+non-production environment without code branching anywhere else.
+Idempotency reuses the same pattern `JobSchedule`/`BackgroundJob` already
+established: a repeated call with the same key is a silent no-op, checked
+against `EmailLog.idempotencyKey`'s own unique constraint.
+
+Retry reuses the queue's existing exponential backoff (`queue.ts`,
+unchanged for every other job type), parameterized by job type so
+`EMAIL_SEND` honors its own `EMAIL_RETRY_BASE_SECONDS` instead of the
+generic 30s base every other job type still uses, and `maxAttempts` is set
+from `EMAIL_MAX_ATTEMPTS` at enqueue time rather than the schema's generic
+default — both config values CONFIGURATION.md already named for exactly
+this and neither was wired to anything until now.
+
+**No invented ninth email.** Reassigning an approval (`assignment.ts`)
+still only ever fires its Phase 16 in-app notification — there's no
+seeded template for a reassignment, and the eight seeded templates are
+this phase's whole remit (API.md doesn't name a ninth). `new_approval_request`'s
+own seed template referenced `{{dueAt}}`, a field nothing computes until
+Phase 19's SLA policy math exists; shipping that placeholder unfilled
+would have been exactly the faked data CLAUDE.md rules out, so the seed
+template drops that clause for now — Phase 19 reintroduces it once the
+date is real, the same "real, documented gap" pattern every prior phase
+already uses for the same field.
+
+Two pre-existing, unrelated test flakes surfaced during full-suite
+verification (not caused by this phase's diff, but blocking a clean
+report of it) and were fixed: `approval-queue.test.ts`'s `dueToday` fixture
+used `now + 1 hour`, which spills into tomorrow whenever the suite happens
+to run within an hour of local midnight — clamped to stay inside today's
+boundary regardless of wall-clock time. `editor.spec.ts`'s submission
+assertion matched the Next.js route-announcer div as well as the real
+heading (the exact bug Phase 14's own review-flow helper had already hit
+and fixed) — scoped to the heading role.
+
+- **Exit — verified**: `tests/unit/email-render.test.ts` covers HTML
+  escaping of interpolated body values, that surrounding template markup
+  is never escaped, an unrecognized token is left in place, a plain-text
+  template's values pass through unescaped, and subject values are
+  stripped of injected newlines. `tests/integration/email.test.ts` proves
+  `sendTemplatedEmail` suppresses delivery (still logging the rendered
+  subject) when `EMAIL_ENABLED` is false — this test environment's own
+  setting — is a no-op on a repeated idempotency key, and skips silently
+  for a template that doesn't exist; `sendTestEmail` logs the same
+  suppressed shape; and the `EMAIL_SEND` handler, run directly against a
+  real job, marks the `EmailLog` `FAILED` with a real `lastError` and
+  leaves the `BackgroundJob` `PENDING` with a future `scheduledAt` on a
+  genuine SMTP connection failure (nothing listens on this sandbox's
+  configured SMTP port, so the failure is real, not simulated) —
+  proving "SMTP failure retries and records `lastError`" for real rather
+  than mocking it. 12 new vitest tests (5 unit + 7 integration) plus the
+  two flake fixes bring the suite to 284 vitest + 28 Playwright tests, all
+  green across repeated runs; `lint`, `typecheck`, `format:check` and
+  `build` are clean. A credential-in-logs check: `SMTP_PASSWORD` is on
+  `logger.ts`'s existing redaction list and nothing in this phase logs a
+  raw config object.
 
 ### Phase 18 · Daily digest
 

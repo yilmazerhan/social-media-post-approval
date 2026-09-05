@@ -16,6 +16,7 @@ import type {
   PostStatus,
 } from "@/generated/prisma/client";
 import { prisma } from "@/server/db";
+import { config } from "@/server/config";
 import {
   WorkflowError,
   NotFoundError,
@@ -278,6 +279,15 @@ export async function approvePost(params: {
         entityId: post.id,
         postId: post.id,
         actorId: params.userId,
+        email: {
+          templateKey: "post_approved",
+          variables: {
+            postTitle: post.title,
+            version: version.versionNumber,
+            approverName: approver.displayName,
+            postUrl: `${config.APP_URL}/posts/${post.id}`,
+          },
+        },
       },
       tx,
     );
@@ -322,10 +332,16 @@ export async function requestChanges(params: {
     );
 
     const now = new Date();
-    const version = await tx.postVersion.findUniqueOrThrow({
-      where: { id: params.input.postVersionId },
-      select: { versionNumber: true },
-    });
+    const [version, approver] = await Promise.all([
+      tx.postVersion.findUniqueOrThrow({
+        where: { id: params.input.postVersionId },
+        select: { versionNumber: true },
+      }),
+      tx.user.findUniqueOrThrow({
+        where: { id: params.userId },
+        select: { displayName: true },
+      }),
+    ]);
 
     await tx.post.update({
       where: { id: post.id },
@@ -373,6 +389,15 @@ export async function requestChanges(params: {
         entityId: post.id,
         postId: post.id,
         actorId: params.userId,
+        email: {
+          templateKey: "changes_requested",
+          variables: {
+            approverName: approver.displayName,
+            postTitle: post.title,
+            comment,
+            postUrl: `${config.APP_URL}/posts/${post.id}`,
+          },
+        },
       },
       tx,
     );
@@ -416,10 +441,16 @@ export async function rejectPost(params: {
     );
 
     const now = new Date();
-    const version = await tx.postVersion.findUniqueOrThrow({
-      where: { id: params.input.postVersionId },
-      select: { versionNumber: true },
-    });
+    const [version, approver] = await Promise.all([
+      tx.postVersion.findUniqueOrThrow({
+        where: { id: params.input.postVersionId },
+        select: { versionNumber: true },
+      }),
+      tx.user.findUniqueOrThrow({
+        where: { id: params.userId },
+        select: { displayName: true },
+      }),
+    ]);
 
     await tx.post.update({
       where: { id: post.id },
@@ -468,6 +499,15 @@ export async function rejectPost(params: {
         entityId: post.id,
         postId: post.id,
         actorId: params.userId,
+        email: {
+          templateKey: "post_rejected",
+          variables: {
+            postTitle: post.title,
+            approverName: approver.displayName,
+            reason,
+            postUrl: `${config.APP_URL}/posts/${post.id}`,
+          },
+        },
       },
       tx,
     );

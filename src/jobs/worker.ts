@@ -10,6 +10,7 @@
  */
 import "@/modules/attachments/jobs";
 import "@/modules/notifications/jobs";
+import "@/modules/email/jobs";
 import { config } from "@/server/config";
 import { workerLogger } from "@/server/logger";
 import { pollOnce } from "./queue";

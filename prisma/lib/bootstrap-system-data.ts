@@ -61,8 +61,11 @@ const EMAIL_TEMPLATES: Array<{
     key: "new_approval_request",
     name: "New approval request",
     subjectTemplate: "Approval needed: {{postTitle}}",
+    // No {{dueAt}} yet: Phase 19 computes the real due date from SLA
+    // policy; a placeholder here would be exactly the faked data
+    // CLAUDE.md rules out. Phase 19 re-adds it once it's real.
     bodyTemplate:
-      '<p>{{creatorName}} submitted <strong>{{postTitle}}</strong> (version {{version}}) for your review.</p><p><a href="{{reviewUrl}}">Review it</a>. Due {{dueAt}}.</p>',
+      '<p>{{creatorName}} submitted <strong>{{postTitle}}</strong> (version {{version}}) for your review.</p><p><a href="{{reviewUrl}}">Review it</a>.</p>',
   },
   {
     key: "changes_requested",
