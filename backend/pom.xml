@@ -25,7 +25,6 @@
         <java.version>21</java.version>
         <archunit.version>1.5.0</archunit.version>
         <shedlock.version>7.10.0</shedlock.version>
-        <awssdk.version>2.54.13</awssdk.version>
         <logstash-logback.version>9.0</logstash-logback.version>
         <bouncycastle.version>1.85.2</bouncycastle.version>
         <tika.version>4.0.0</tika.version>
@@ -56,13 +55,6 @@
                 <groupId>org.testcontainers</groupId>
                 <artifactId>testcontainers-bom</artifactId>
                 <version>${testcontainers.version}</version>
-                <type>pom</type>
-                <scope>import</scope>
-            </dependency>
-            <dependency>
-                <groupId>software.amazon.awssdk</groupId>
-                <artifactId>bom</artifactId>
-                <version>${awssdk.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -133,11 +125,9 @@
             <scope>runtime</scope>
         </dependency>
 
-        <!-- ======================== Storage and media ======================== -->
-        <dependency>
-            <groupId>software.amazon.awssdk</groupId>
-            <artifactId>s3</artifactId>
-        </dependency>
+        <!-- ======================== Storage and media ========================
+             The S3 adapter and its SDK arrive with phase 2; the storage port and the filesystem
+             adapter are in place, and an unused dependency has no business in the build. -->
         <!-- Magic-byte content type detection; the client's Content-Type is only a hint. -->
         <dependency>
             <groupId>org.apache.tika</groupId>

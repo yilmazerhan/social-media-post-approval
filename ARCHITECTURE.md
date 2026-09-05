@@ -1,6 +1,6 @@
 # Kron Social Approval — Architecture
 
-**Status:** v1.1 — baseline reviewed, production stack selected and verified
+**Status:** v1.2 — stack verified; the two hero screens and the vertical slice behind them are built
 **Owner:** Platform Engineering
 **Last updated:** 2026-09-04
 **Applies to:** all code in this repository
@@ -1808,14 +1808,17 @@ content-quality win, not only an accessibility one).
 
 | Phase | Contents |
 |---|---|
-| 0 (done) | Skeleton: version-pinned stack, module packages with enforced boundaries, validated configuration, error model, security posture, Flyway baseline, job infrastructure, health and OpenAPI endpoints, container images, compose stack. Verified: backend builds and boots against PostgreSQL and Redis, migrations apply, frontend builds, lints and tests |
-| 1 | Identity + access: `app_user`, `identity_link`, local auth, SAML, sessions, RBAC, `/me` |
-| 2 | Content: drafts, versions, attachments, storage, validation |
-| 3 | Workflow: submit, assign, decide, state machine, comments |
-| 4 | Notifications: in-app centre, outbox, templates, daily digest |
-| 5 | Governance: audit trail, SLA, escalation, retention, admin panel |
-| 6 | AI review, reporting, search refinement |
-| 7 | Hardening: performance, accessibility, penetration test remediation |
+| 0 (done) | Skeleton: version-pinned stack, module packages with enforced boundaries, validated configuration, error model, security posture, Flyway baseline, job infrastructure, health and OpenAPI endpoints, container images, compose stack |
+| 1 (done) | Identity + access: `app_user`, `identity_link`, local authentication with Argon2id and lockout, Redis-backed sessions, database-driven roles and permissions, `/me` with the effective permission set. **SAML sign-in is wired at the configuration level but not yet implemented** |
+| 2 (done) | Content: drafts, immutable versions, attachments with magic-byte validation, the storage port with its filesystem adapter, channels, server-side sanitisation, word-level version diff |
+| 3 (done) | Workflow: submit, approver routing, the decision state machine, SLA due dates, review discussion |
+| 4 (partial) | In-app notification centre and preferences. **The email outbox, templates and the daily digest are not built yet** |
+| 5 | Governance: audit trail, SLA scan and escalation jobs, retention, admin panel |
+| 6 | AI provider adapter (Anthropic), reporting, search refinement |
+| 7 | Hardening: performance, accessibility audit, penetration test remediation |
+
+Phases 1 to 3 were built as a **vertical slice** rather than as complete phases: enough of each to make
+the two hero screens real, and no more. Appendix B lists exactly what that leaves outstanding.
 
 Each phase must leave the application deployable and the previous phases intact.
 
@@ -2041,3 +2044,175 @@ over: the container images were not built, because no Docker daemon was availabl
 and the compose file are syntactically validated (`docker compose config`) but unexercised, and
 `-DskipSaml` was required for every build here since the sandbox's network policy blocks the
 Shibboleth repository. Both are environment limitations, not design gaps.
+
+---
+
+## Appendix B — The two hero screens
+
+Most of this product is ordinary CRUD. Two screens are not, and they carry the whole proposition:
+**write something worth publishing, be confident before you hand it over, and decide on it well.**
+Everything in this appendix exists to protect those two experiences from being flattened into forms.
+
+### B.1 What both screens must answer
+
+A person arriving at either screen should be able to answer six questions in two or three seconds,
+without scrolling and without opening anything:
+
+| Question | Post editor | Approval review |
+|---|---|---|
+| What am I looking at? | Title field and live preview, side by side | Post title and the content preview, full width |
+| Who created it? | It is yours; the author line sits in the preview | Creator, department and submission time in the header |
+| What state is it in? | Status badge and autosave line in the top bar | Status, priority and version badges under the title |
+| What happens next? | "Submit for approval" and the approval route card | "Your decision", and who else is assigned |
+| Is anything risky? | AI content check panel | AI review panel and the risk badge in the context bar |
+| What can I do? | Save, preview, submit — in that visual order | Approve, request changes, reject — in that visual order |
+
+### B.2 Visual hierarchy, in order
+
+Content first, always. Metadata never outweighs the thing being judged.
+
+- **Post editor:** content → live preview → governance → AI assistance → submission.
+- **Approval review:** content → decision context → AI findings → version and history → decision.
+
+Decoration is deliberately absent. Colour reinforces meaning but never carries it alone: every
+status, priority, risk level and SLA state is spelled out in words and paired with an icon, so the
+screens remain readable in monochrome and to a reviewer who cannot separate red from green.
+
+### B.3 Post editor
+
+Route `/posts/:id/edit`. Three columns on a wide screen — write, see, govern — because those are the
+three questions an author has at the same time. Below `lg` the preview folds into the settings
+column; below `md` the three become tabs (Editor, Preview, Settings) rather than a long scroll.
+
+| Region | Behaviour |
+|---|---|
+| Top bar | Back to my posts · title and status · Save draft, Preview (compact only), Submit for approval. An autosave line underneath reads "Saved just now", "Saving…", or the reason it could not save |
+| Content workspace | Title field, then a deliberately small rich-text editor: bold, italic, underline, two list types, links. Paste is forced to plain text. A character count sits under it and warns against the channel's recommended and maximum length |
+| Media workspace | Drag-and-drop area with an explicit empty state, per-file progress ("Uploading… 74%"), and a card per attachment showing thumbnail, filename, type, size, status, dimensions or duration. Uploading never blocks the editor, and one file failing never takes down the others |
+| Live preview | A neutral publication preview — not an imitation of a social network — with desktop and mobile widths, a permanent "Preview only" marker, and updates as the author types |
+| Governance panel | Channel, priority (with a sentence explaining what priority actually changes), and the approval route card, which says in words who will review this and what "automatically assigned" means |
+| AI content check | Runs only when asked. Findings expand to category, severity, the evidence in the author's own text, and an optional suggestion. "Apply suggestion" appends clearly-labelled AI-generated wording; nothing is ever silently rewritten |
+
+Three states change the editor's character rather than adding a notice to it:
+
+- **Changes requested** — a banner leads with the reviewer's own words, names who asked and when,
+  and states plainly that this edit becomes version N while the reviewed version stays untouched.
+- **In review** — the editor is read-only and says why, with a single way out: withdraw.
+- **Submitted** — a dedicated confirmation screen, not a toast: what was submitted, which version,
+  who has it, when it is expected back, and where to go next.
+
+The pre-submission dialog exists for one reason: **"Save draft" and "Submit for approval" must never
+feel like the same gesture.** It lists what has been checked, marks what is still missing as
+blocking, and states the consequence — once submitted, the content cannot be edited unless the
+reviewer asks for changes.
+
+### B.4 Approval review
+
+Route `/approvals/:id/review`. One request assembles content, version, findings, history and
+discussion, so a reviewer never has to navigate away to understand what they are deciding.
+
+| Region | Behaviour |
+|---|---|
+| Header | Back to approvals · title · status, priority and "Version N awaiting approval" · creator, department and submission time · SLA countdown with a progress bar. Previous/next navigation moves through the queue without returning to it |
+| Decision context bar | Six fields, always in the same order: current status, creator, version, approver, service level, AI risk |
+| Content preview | The version under review at full width, with generous spacing and no controls competing with it |
+| AI review | Restrained, subtitled "AI-assisted analysis. Human approval required." Each finding expands to category, severity, explanation and evidence, and can be acknowledged or dismissed against the reviewer's name. There is no "approve with AI" anywhere, by design |
+| Compare versions | Side-by-side text with word-level additions and removals, marked by underline and strike-through as well as colour, plus media added and removed. It states which version is the one awaiting approval |
+| Review history | Actor, action, version and time per entry, expanding to the reviewer's note |
+| Review discussion | Threaded comments next to the decision, plain text only |
+| Decision panel | Approve (primary), request changes (secondary), reject (present, never dominant). Sticky beside the content on desktop; a fixed bottom bar on mobile carrying version, SLA and AI risk alongside the three actions |
+
+Decisions are confirmed, never one-click. Approving restates the exact version being recorded;
+rejecting and requesting changes require a written reason, because an author cannot act on "no".
+Keyboard shortcuts (A, R, E, and `?` for help) speed up a reviewer working a queue, and are disabled
+whenever the cursor is in a text field — typing a rejection reason must never fire an approval.
+
+### B.5 Concurrency and version integrity
+
+The screen never silently replaces a reviewer's context. The review is re-fetched periodically; if
+the version or the round's status changed underneath them, a banner says so and offers Refresh or
+Review changes.
+
+The guarantee behind that banner is server-side. Every decision carries the version number the
+reviewer believed they were judging, and four checks stand between it and the record: the round must
+still be open, the reviewer must be assigned to it, they must not be the author, and the version
+must match. A stale decision is refused with a message naming the version that is actually under
+review — an obsolete version can never be approved.
+
+### B.6 Microcopy
+
+The interface always names the next responsible actor and describes the act, not the mechanism.
+
+| Used | Not used |
+|---|---|
+| Submit for approval | Send |
+| Request changes | Send back |
+| Waiting for approval | Pending |
+| Version 3 awaiting approval | Current |
+| AI-assisted analysis. Human approval required. | AI decision |
+| Once submitted, the content cannot be edited unless the reviewer requests changes. | Are you sure? |
+
+### B.7 Reusable components
+
+Built for these screens, usable anywhere: `StatusBadge`, `PriorityBadge`, `VersionBadge`,
+`AiRiskBadge`, `SlaIndicator`, `UserChip`, `EmptyState`, `PostBody`, `RichTextEditor`,
+`MediaUploader`, `MediaCard`, `PublicationPreview`, `PostSettingsPanel`, `ApprovalRouteCard`,
+`AiContentCheckPanel`, `PreSubmissionDialog`, `SubmissionConfirmation`, `ChangesRequestedBanner`,
+`DecisionContextBar`, `AiReviewPanel`, `VersionComparisonDialog`, `ApprovalTimeline`,
+`CommentThread`, `DecisionPanel`, `DecisionDialog`, `StickyDecisionBar`, `DecisionOutcome`.
+
+`PostBody` is the only component in the application permitted to render stored HTML, and an ESLint
+rule fails the build on `dangerouslySetInnerHTML` anywhere else — one line to audit instead of
+twenty.
+
+### B.8 Demo mode
+
+The `demo` Spring profile seeds the example these screens were designed against: "Introducing Kron
+PAM 4.0", high priority, on version 3 after two rounds that came back with change requests, with a
+generated image, findings from a content check, a discussion thread and an SLA with hours left. Each
+version differs from the previous one in exactly the way its reviewer asked for, so the comparison
+view has something real to show.
+
+It is a fixture, and it is fenced: nothing in it runs outside the profile, it refuses to seed over an
+existing database, and it writes through SQL rather than reaching into any module. Two honesty rules
+shape it. The AI findings are stored with the provider recorded as `demo-fixture`, never as though a
+model had produced them. And the sample video is metadata only — encoding a real MP4 needs tooling
+this environment does not have, and a fixture should not invent playable bytes; the record says so,
+and the preview shows the file's details with a plain notice instead of a player stuck at 0:00.
+
+### B.9 Deliberately not built yet
+
+The slice behind these screens is real, but it is a slice. What a reader should not assume is
+present:
+
+| Not yet built | Consequence today |
+|---|---|
+| SAML sign-in | Configuration, claim mapping and the dependency are in place; the filter chain is not. Local accounts are the working path |
+| Email outbox, templates, daily digest | Notifications appear in the in-app centre only |
+| Audit trail (`audit_event`) | History is reconstructed from versions, decisions and comments — enough for the screens, not enough for an auditor |
+| Antivirus scanning | Attachments record "scanning is not configured in this environment" rather than claiming a clean scan |
+| S3 storage adapter | The filesystem adapter runs behind the same port |
+| SLA scan, escalation, retention jobs | SLA state is computed on read; nothing escalates on its own yet |
+| A real AI provider | The default provider reports unavailability; findings exist only in the demo fixture |
+| Admin panel, reporting, search | Not started |
+
+### B.10 Verification performed
+
+Every claim above was exercised against the running application, not asserted:
+
+| Check | Result |
+|---|---|
+| `mvn verify` | 19 tests pass — lifecycle invariants, SLA transitions, sanitiser, diff, module boundaries |
+| Author round trip (API) | Submit → changes requested → edit → resubmit as v2 → approve; post ends APPROVED and read-only |
+| Separation of duties | An author's attempt to decide on their own post is refused |
+| Authorization | An employee is refused the approvals queue and any decision, with 403 and a stable error code |
+| Version integrity | A decision quoting version 2 against version 3 is refused with `VERSION_MISMATCH` |
+| Mandatory reason | Rejecting with no comment is refused with `DECISION_COMMENT_REQUIRED` |
+| Version comparison | v1→v2 and v2→v3 each report the exact phrase added or removed |
+| Browser (Playwright, 10 tests) | Both hero screens, keyboard shortcut, comparison dialog, pre-submission dialog, read-only state, employee refusal, admin access, and the mobile layout |
+| Frontend | `tsc`, `vite build`, `vitest`, `eslint` and `prettier --check` all clean |
+
+Two defects were found this way and fixed rather than documented around: authorization failures were
+being reported as 500s because the catch-all handler swallowed `AccessDeniedException`, and the page
+was declaring `lang="tr"` while carrying English copy, which made the browser render "SERVICE LEVEL"
+as "SERVİCE LEVEL" — the Turkish dotted-i rule that section 17.3 warns about, caught in a screenshot.

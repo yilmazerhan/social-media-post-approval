@@ -124,7 +124,8 @@ ksa:
     idle-timeout: 30m
     absolute-timeout: 12h
   storage:
-    provider: ${KSA_STORAGE_PROVIDER:s3}
+    provider: ${KSA_STORAGE_PROVIDER:filesystem}
+    filesystem-root: ${KSA_STORAGE_ROOT:./var/storage}
     endpoint: ${KSA_STORAGE_ENDPOINT:http://localhost:9000}
     uploads-bucket: ksa-uploads
     media-bucket: ksa-media

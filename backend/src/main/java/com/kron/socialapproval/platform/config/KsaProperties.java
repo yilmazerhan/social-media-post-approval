@@ -111,9 +111,12 @@ public class KsaProperties {
     }
 
     public static class Storage {
-        /** s3, azure-blob or filesystem. */
+        /** filesystem (local, tests, single node) or s3 (phase 2). */
         @NotBlank
-        private String provider = "s3";
+        private String provider = "filesystem";
+        /** Root directory for the filesystem backend. */
+        @NotBlank
+        private String filesystemRoot = "./var/storage";
         private String endpoint;
         private String uploadsBucket = "ksa-uploads";
         private String mediaBucket = "ksa-media";
@@ -129,6 +132,8 @@ public class KsaProperties {
 
         public String getProvider() { return provider; }
         public void setProvider(String v) { this.provider = v; }
+        public String getFilesystemRoot() { return filesystemRoot; }
+        public void setFilesystemRoot(String v) { this.filesystemRoot = v; }
         public String getEndpoint() { return endpoint; }
         public void setEndpoint(String v) { this.endpoint = v; }
         public String getUploadsBucket() { return uploadsBucket; }

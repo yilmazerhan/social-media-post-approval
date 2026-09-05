@@ -8,13 +8,23 @@ before anything is published, and every step is auditable.
 module boundaries, entity model, API surface, the post lifecycle and every security decision live
 there, and changes to it are how the design evolves.
 
-## Current state — Phase 0
+## Current state
 
-The skeleton is in place and verified: the version-pinned stack, module packages with enforced
-boundaries, validated configuration, the RFC 9457 error model, the baseline security posture,
-Flyway migrations, cluster-safe job infrastructure, health and OpenAPI endpoints, container images
-and the local stack. No business feature is implemented yet. Features arrive per the phase plan in
-ARCHITECTURE.md section 19.2, and each phase must leave the previous ones intact.
+The two screens the product lives or dies by are built, on top of a real vertical slice: local
+authentication with permission-based access control, drafts and immutable versions, media upload
+with content sniffing, the approval state machine with SLA due dates, review discussion and an
+in-app notification centre.
+
+- **Post editor** (`/posts/:id/edit`) — write, preview and govern side by side, with media upload,
+  an advisory content check, and a pre-submission review that makes "save" and "submit" impossible
+  to confuse.
+- **Approval review** (`/approvals/:id/review`) — content, decision context, AI findings, version
+  comparison, history and discussion on one screen, with the decision always in reach.
+
+**Appendix B of ARCHITECTURE.md** describes both screens in detail, including a table of what is
+deliberately *not* built yet — SAML sign-in, the email outbox, the audit trail, antivirus scanning,
+the S3 adapter, the background jobs and the admin panel. Read it before assuming a capability is
+present.
 
 ## Stack
 
@@ -38,9 +48,13 @@ ARCHITECTURE.md.
 cp .env.example .env
 docker compose up -d              # postgres, redis, minio, mailpit, clamav
 
-cd backend && mvn spring-boot:run # http://localhost:8080 (management on 8081)
+# Demo data: adds three users and a worked approval example (see ARCHITECTURE.md B.8)
+cd backend && mvn spring-boot:run -Dspring-boot.run.profiles=local,demo
 cd frontend && npm install && npm run dev   # http://localhost:5173
 ```
+
+Sign in with `john.smith` (author), `sarah.johnson` (approver) or `admin`, password
+`Demo!Passw0rd`. Those accounts exist **only** under the `demo` profile.
 
 ### A note on the SAML dependency
 
@@ -63,10 +77,15 @@ Useful local endpoints:
 ## Verifying a change
 
 ```bash
-cd backend  && mvn verify              # unit, slice, integration and ArchUnit boundary tests
+cd backend  && mvn verify              # domain, lifecycle, SLA, sanitiser and ArchUnit boundary tests
 cd frontend && npm run build           # typecheck + production build
 cd frontend && npm test && npm run lint
+cd frontend && npm run e2e             # Playwright, against a running backend on the demo profile
 ```
+
+The end-to-end suite needs the backend on :8080 (profiles `local,demo`) and the dev server on :5173.
+On a machine whose Chromium build does not match the pinned Playwright revision, point at the one
+you have: `PLAYWRIGHT_CHROMIUM_PATH=/path/to/chrome npm run e2e`.
 
 The ArchUnit suite fails the build when a module reaches into another module's internals. That is
 intentional: documented boundaries erode, checked ones do not.

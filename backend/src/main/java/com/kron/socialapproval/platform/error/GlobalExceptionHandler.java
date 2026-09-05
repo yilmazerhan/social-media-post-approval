@@ -9,6 +9,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.web.ErrorResponseException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -43,6 +45,22 @@ public class GlobalExceptionHandler {
                 .toList();
         problem.setProperty("errors", errors);
         return problem;
+    }
+
+    /**
+     * A denied method-security check is a 403, not a server fault. Without this the catch-all below
+     * would report every authorization failure as an internal error — and hide it from the client.
+     */
+    @ExceptionHandler(AccessDeniedException.class)
+    public ProblemDetail handleAccessDenied(AccessDeniedException ex, HttpServletRequest request) {
+        log.info("Access denied on {} {}", request.getMethod(), request.getRequestURI());
+        return problem(HttpStatus.FORBIDDEN, "ACCESS_DENIED",
+                "You do not have permission to do that.", request);
+    }
+
+    @ExceptionHandler(AuthenticationException.class)
+    public ProblemDetail handleAuthentication(AuthenticationException ex, HttpServletRequest request) {
+        return problem(HttpStatus.UNAUTHORIZED, "UNAUTHENTICATED", "Sign in to continue.", request);
     }
 
     @ExceptionHandler(NoResourceFoundException.class)

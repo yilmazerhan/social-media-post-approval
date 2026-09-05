@@ -19,7 +19,8 @@ export default defineConfig({
     proxy: {
       '/api': { target: 'http://localhost:8080', changeOrigin: true },
       '/saml2': { target: 'http://localhost:8080', changeOrigin: true },
-      '/login': { target: 'http://localhost:8080', changeOrigin: true },
+      // Only the SAML assertion-consumer path, not the SPA's own /login route.
+      '/login/saml2': { target: 'http://localhost:8080', changeOrigin: true },
     },
   },
   build: { outDir: 'dist', sourcemap: true },
