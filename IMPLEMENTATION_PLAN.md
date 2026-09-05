@@ -4,7 +4,7 @@ The build order, what "done" means at each step, and where we currently are.
 The 28 phases from the master specification are grouped into seven milestones so
 progress is reviewable in meaningful chunks rather than one uncontrolled change.
 
-**Current status: Phase 9 complete — awaiting the go-ahead to start Phase 10.**
+**Current status: Phase 10 complete — proceeding directly to Phase 11 per the user's standing instruction to work through all remaining phases.**
 
 ---
 
@@ -703,13 +703,69 @@ hide a view already on screen — the parent page now always renders
   tests, all green repeatably; `lint`, `typecheck`, `format:check` and
   `build` are clean.
 
-### Phase 10 · Post details and versioning
+### Phase 10 · Post details and versioning — **complete**
 
-Version freezing at submission, version list, immutable version view, word-level
-diff and attachment delta, post details tabs, activity timeline.
-**Exit**: version numbering is gapless per post; an approved post edited anew
-produces a version and returns to DRAFT while the old approval still points at
-the version it approved.
+Built the read side of versioning — `posts/versions.ts` (`getPostDetail`,
+`listVersions`, `getVersion`, `compareVersions`, `getActivity`) and the
+real Post Details screen at `/posts/:id`, replacing Phase 7's
+placeholder: Overview, Preview, Versions, Approval history, Comments and
+Activity tabs (`UI_UX_SPEC.md` §6), a new `Tabs` primitive
+(`@radix-ui/react-tabs`), and `VersionDiff` — a shared word-level-diff
+renderer (`diff`'s `diffWords`, wrapped in `src/lib/diff.ts` as the pure,
+unit-tested `computeWordDiff`) rendering additions green-underlined and
+removals red-struck-through with a legend, plus an attachment
+added/removed/reordered delta with thumbnails, exactly as §5 describes
+for Approval Review's Compare tab — Phase 14 reuses this component
+rather than rebuilding it. The Comments tab renders a real (currently
+always-empty) query against the `Comment` table rather than a stub,
+since creating comments is genuinely Phase 15's work; nothing here is
+half-built.
+
+The one true gap in the spec, resolved by research against every doc
+before writing code: no endpoint or table says _how_ editing an
+`APPROVED` post moves it back to `DRAFT`, since that transition isn't one
+of `ApprovalActionType`'s nine values (state-machine.ts's own comment
+flagged this back in Phase 8). ARCHITECTURE.md §4 and ADR-006 together
+resolve it — "an approved post that is edited returns to DRAFT with a new
+version pending" — so `posts/service.ts` gained `reopenIfApproved`, called
+at the top of both `updateDraft` and `autosaveDraft`: the first draft
+mutation reaching an `APPROVED` post flips its status to `DRAFT`, clears
+`approvedVersionId`, and writes a `POST_REOPENED_FOR_EDIT` audit entry —
+a plain status update outside `assertLegalTransition`'s table, exactly as
+that comment demanded. Nothing else changes: `draftContentJson` already
+equals the approved version's content (submission never clears it), so
+the draft needs no re-seeding, and the _actual_ new version is frozen by
+the ordinary DRAFT → SUBMITTED path `submit.ts` already had — no second
+version-freezing mechanism, per ADR-006's "only submission freezes a
+version." `EDITABLE_STATUSES` (service.ts and both the PATCH/autosave
+route handlers) gained `APPROVED`; `REJECTED` deliberately did not, since
+`UI_UX_SPEC.md`'s My Posts row-action table gives a rejected post only
+View/Duplicate, never Edit — reopening only ever applies to an approval
+that's since proven wrong, not a rejection, which the spec routes through
+Duplicate instead (Duplicate itself isn't built this phase — it's in
+API.md's table but not in Phase 10's own exit criteria, and is noted here
+as a real, deliberate gap rather than silently dropped).
+
+- **Exit — verified**: `tests/integration/post-versions.test.ts` submits,
+  simulates a Phase-11-not-yet-built `REQUEST_CHANGES` (completing the
+  open assignment, since only one `PENDING`/`IN_PROGRESS` assignment is
+  ever allowed per post) and resubmits, asserting `versionNumber` 1 then
+  2 with `supersedesVersionId` chained correctly — gapless numbering
+  under the real path, not asserted in isolation. A second test approves
+  a post (simulating Phase 11's not-yet-built `APPROVE`), edits it, and
+  asserts the status flip to `DRAFT`, `approvedVersionId` cleared, the
+  `POST_REOPENED_FOR_EDIT` audit row, and — the exit criterion's exact
+  wording — that the historical `ApprovalAction` row is untouched and
+  still names the version it approved; resubmitting then produces a
+  correctly-chained version 2. `tests/e2e/post-details.spec.ts` drives
+  the real screen against the seeded hero fixture (three versions, a
+  `REQUEST_CHANGES` comment on version 2): Overview's version numbers,
+  the Versions tab's default previous→current comparison rendering the
+  diff and legend, Approval history showing the request-changes comment,
+  Activity showing the submission — plus a dedicated axe pass, zero
+  violations. 9 new vitest tests and 2 new Playwright specs bring the
+  suite to 219 vitest + 18 Playwright tests, all green repeatably;
+  `lint`, `typecheck`, `format:check` and `build` are clean.
 
 ---
 

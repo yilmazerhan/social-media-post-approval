@@ -24,11 +24,25 @@ export {
 } from "./service";
 export { submitPost, type SubmitResult } from "./submit";
 export {
+  getPostDetail,
+  listVersions,
+  getVersion,
+  compareVersions,
+  getActivity,
+} from "./versions";
+export {
   type PostEditorDto,
   type ReadinessChecklist,
   type ReadinessItem,
   type RoutePreview,
   type ChangesRequestedBanner,
+  type PostDetailDto,
+  type VersionSummaryDto,
+  type VersionDetailDto,
+  type VersionCompareDto,
+  type AttachmentDelta,
+  type ActivityEntryDto,
+  type ActivityEntryType,
 } from "./types";
 export {
   createPostSchema,

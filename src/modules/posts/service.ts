@@ -36,7 +36,46 @@ import type {
   ReadinessChecklist,
 } from "./types";
 
-const EDITABLE_STATUSES = new Set(["DRAFT", "CHANGES_REQUESTED"]);
+const EDITABLE_STATUSES = new Set(["DRAFT", "CHANGES_REQUESTED", "APPROVED"]);
+
+/**
+ * ARCHITECTURE.md §4: "Editing an `APPROVED` post is allowed only by
+ * creating a new version, which moves the post back to `DRAFT` and clears
+ * `approvedVersionId` from the post header. The historical approval row
+ * survives and still points at the version it approved." Not a
+ * state-machine transition — state-machine.ts's own comment says this
+ * deliberately isn't one of `ApprovalActionType`'s nine values — so this
+ * is a direct status flip, applied the first time any draft mutation
+ * reaches an `APPROVED` post; submitting afterwards is then just the
+ * ordinary DRAFT → SUBMITTED row already in that table, freezing the new
+ * version through the exact same `submit.ts` path as everything else
+ * (ADR-006: "an approved post that is edited returns to DRAFT with a new
+ * version pending").
+ */
+async function reopenIfApproved(postId: string): Promise<void> {
+  const post = await prisma.post.findUnique({
+    where: { id: postId },
+    select: {
+      status: true,
+      creatorId: true,
+      creator: { select: { email: true } },
+    },
+  });
+  if (!post || post.status !== "APPROVED") return;
+
+  await prisma.post.update({
+    where: { id: postId },
+    data: { status: "DRAFT", approvedVersionId: null },
+  });
+  await writeAudit({
+    actorId: post.creatorId,
+    actorEmail: post.creator.email,
+    action: "POST_REOPENED_FOR_EDIT",
+    entityType: "Post",
+    entityId: postId,
+    postId,
+  });
+}
 
 function parseDraftContent(value: unknown) {
   if (value === null || value === undefined) return EMPTY_DOCUMENT;
@@ -152,6 +191,8 @@ export async function updateDraft(params: {
   const { postId, creatorId, input } = params;
   const now = new Date();
 
+  await reopenIfApproved(postId);
+
   if (input.attachmentIds !== undefined) {
     const ownershipOk = await validateAttachmentOwnership({
       ids: input.attachmentIds,
@@ -220,6 +261,9 @@ export async function autosaveDraft(params: {
   input: AutosavePostInput;
 }): Promise<{ draftUpdatedAt: string }> {
   const now = new Date();
+
+  await reopenIfApproved(params.postId);
+
   const data: Prisma.PostUpdateInput = {
     draftContentJson: toJsonInput(params.input.contentJson),
     draftUpdatedAt: now,

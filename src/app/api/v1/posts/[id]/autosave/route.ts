@@ -2,7 +2,7 @@ import { prisma } from "@/server/db";
 import { protectedHandler, WorkflowError } from "@/server/http/handler";
 import { autosavePostSchema, autosaveDraft } from "@/modules/posts";
 
-const EDITABLE_STATUSES = new Set(["DRAFT", "CHANGES_REQUESTED"]);
+const EDITABLE_STATUSES = new Set(["DRAFT", "CHANGES_REQUESTED", "APPROVED"]);
 
 export const POST = protectedHandler<
   ReturnType<typeof autosavePostSchema.parse>,

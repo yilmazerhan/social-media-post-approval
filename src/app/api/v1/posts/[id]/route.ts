@@ -2,7 +2,7 @@ import { prisma } from "@/server/db";
 import { protectedHandler, WorkflowError } from "@/server/http/handler";
 import { updatePostSchema, getPostForEdit, updateDraft } from "@/modules/posts";
 
-const EDITABLE_STATUSES = new Set(["DRAFT", "CHANGES_REQUESTED"]);
+const EDITABLE_STATUSES = new Set(["DRAFT", "CHANGES_REQUESTED", "APPROVED"]);
 
 async function loadOwnedPost({ params }: { params: Record<string, string> }) {
   const post = await prisma.post.findUnique({
