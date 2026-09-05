@@ -18,6 +18,9 @@ import { ForbiddenError } from "./errors";
 const OWNED_POST_PERMISSIONS = new Set<PermissionKey>([
   "POST_READ_OWN",
   "POST_EDIT_OWN",
+  "POST_SUBMIT",
+  "POST_DELETE_OWN",
+  "POST_CANCEL",
 ]);
 const APPROVAL_ACTION_PERMISSIONS = new Set<PermissionKey>([
   "POST_APPROVE",

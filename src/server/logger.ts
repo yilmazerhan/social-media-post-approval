@@ -1,4 +1,5 @@
 import pino from "pino";
+import pinoPretty from "pino-pretty";
 import { config } from "@/server/config";
 
 /**
@@ -37,21 +38,28 @@ const REDACT_PATHS = [
   "DATABASE_URL",
 ];
 
-const baseLogger = pino({
-  level: config.LOG_LEVEL,
-  timestamp: pino.stdTimeFunctions.isoTime,
-  redact: {
-    paths: REDACT_PATHS,
-    censor: "«redacted»",
+/**
+ * `pino-pretty` is wired in as a synchronous destination stream, not via
+ * pino's `transport` option — `transport` always spawns a worker thread
+ * (through `thread-stream`), and that worker fails to resolve inside
+ * Next.js/Turbopack's build-time module sandbox (surfaced once a route
+ * handler first imported this module during `next build`'s page-data
+ * collection). This form runs pino-pretty in-process instead, which
+ * works in every context this logger loads in.
+ */
+const baseLogger = pino(
+  {
+    level: config.LOG_LEVEL,
+    timestamp: pino.stdTimeFunctions.isoTime,
+    redact: {
+      paths: REDACT_PATHS,
+      censor: "«redacted»",
+    },
   },
-  transport:
-    config.LOG_FORMAT === "pretty"
-      ? {
-          target: "pino-pretty",
-          options: { colorize: true, translateTime: "SYS:standard" },
-        }
-      : undefined,
-});
+  config.LOG_FORMAT === "pretty"
+    ? pinoPretty({ colorize: true, translateTime: "SYS:standard" })
+    : undefined,
+);
 
 export type LogCategory =
   "app" | "security" | "auth" | "audit" | "worker" | "http";

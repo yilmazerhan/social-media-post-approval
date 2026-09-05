@@ -83,7 +83,38 @@ async function seedHeroPost(params: {
   const reference = `POST-${new Date().getFullYear()}-000001`;
   const existing = await prisma.post.findUnique({ where: { reference } });
   if (existing) {
-    console.log(`Hero post ${reference} already exists — skipping.`);
+    // The hero post itself is created once — PostVersion rows are
+    // immutable (ADR-006) and never rewritten on a later seed run. But
+    // "due in 6h, warning already elapsed" was computed relative to
+    // *that* run, not "now": left alone, a dev environment or long-lived
+    // session eventually finds the fixture's SLA state has silently
+    // drifted from "due soon" into "overdue" purely because real time
+    // passed. Refreshing just the open assignment's due/warning window
+    // (and the post's own mirrored dueAt) keeps the demo narrative true
+    // without touching anything ADR-006 says must stay frozen.
+    const openAssignment = await prisma.approvalAssignment.findFirst({
+      where: {
+        postId: existing.id,
+        status: { in: ["PENDING", "IN_PROGRESS"] },
+      },
+    });
+    if (openAssignment) {
+      const now = Date.now();
+      const dueAt = new Date(now + 6 * 60 * 60 * 1000);
+      const warningAt = new Date(now - 3 * 60 * 60 * 1000);
+      await prisma.$transaction([
+        prisma.post.update({ where: { id: existing.id }, data: { dueAt } }),
+        prisma.approvalAssignment.update({
+          where: { id: openAssignment.id },
+          data: { dueAt, warningAt },
+        }),
+      ]);
+      console.log(
+        `Hero post ${reference} already exists — refreshed its due/warning window to stay "due in 6h".`,
+      );
+    } else {
+      console.log(`Hero post ${reference} already exists — skipping.`);
+    }
     return;
   }
 

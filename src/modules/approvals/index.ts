@@ -13,3 +13,10 @@ export {
   type SlaComplianceSummary,
   type SystemApprovalStats,
 } from "./dashboard";
+export {
+  resolveApprovalRoute,
+  resolveAssigneeName,
+  type ResolvedRoute,
+  type RoutablePost,
+} from "./route-resolution";
+export { assertLegalTransition } from "./state-machine";

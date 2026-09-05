@@ -4,7 +4,7 @@ The build order, what "done" means at each step, and where we currently are.
 The 28 phases from the master specification are grouped into seven milestones so
 progress is reviewable in meaningful chunks rather than one uncontrolled change.
 
-**Current status: Phase 7 complete — awaiting the go-ahead to start Phase 8.**
+**Current status: Phase 8 complete — awaiting the go-ahead to start Phase 9.**
 
 ---
 
@@ -486,14 +486,132 @@ database holds at that moment, rather than a fixed expected number.
   bring the suite to 136 vitest + 12 Playwright tests, all green
   repeatably; `lint`, `typecheck`, `format:check` and `build` are clean.
 
-### Phase 8 · Post Editor (hero screen A)
+### Phase 8 · Post Editor (hero screen A) — **complete**
 
-Tiptap editor with server-side sanitisation, autosave, draft recovery, unsaved
-changes guard, post settings, deterministic readiness checklist, preview,
-submit confirmation and the `CHANGES_REQUESTED` banner.
-**Exit**: the flow in §4 of `UI_UX_SPEC.md` works exactly as drawn, including
-tablet and mobile layouts; hostile HTML in the editor is neutralised; no AI
-affordance exists anywhere on the screen.
+Delivered the CREATE → autosave → VALIDATE → PREVIEW → SUBMIT flow
+`UI_UX_SPEC.md` §4 draws, backed by a new `posts` module
+(`content-schema.ts`, `content-render.ts`, `reference.ts`, `service.ts`,
+`submit.ts`) and a first real slice of `approvals`
+(`route-resolution.ts`, `state-machine.ts`). `/posts/new` is a Server
+Component that creates a draft (title is optional at this point — the
+spec's own CREATE-before-VALIDATE ordering) and redirects to
+`/posts/[id]/edit`, which mounts `editor-screen.tsx`: Tiptap
+(`rich-text-editor.tsx` + `toolbar.tsx`) wired to `use-autosave.ts` (3s
+idle debounce, `AUTOSAVE_INTERVAL_SECONDS`), `use-draft-recovery.ts`, and
+`use-unsaved-changes-guard.ts`, alongside `post-settings-panel.tsx`,
+`readiness-checklist.tsx`, `preview-dialog.tsx`,
+`submit-confirmation-dialog.tsx`, and `changes-requested-banner.tsx`.
+
+Sanitisation follows `ARCHITECTURE.md` ADR-007 (Tiptap JSON is the source
+of truth; HTML is a derived, never-trusted artifact) more strictly than
+the obvious approach: instead of running untrusted HTML through a
+third-party sanitiser, `content-schema.ts` validates the editor's JSON
+against a closed, hand-written Zod vocabulary (paragraph/blockquote/
+bulleted and ordered lists, bold/italic/underline/strike marks, a link
+mark whose `href` must match `^https?://` or `^mailto:`), and
+`content-render.ts` only ever *constructs* HTML from that validated
+structure — there is no code path that parses or cleans an HTML string
+from the client, so there is nothing for a sanitiser bypass to bypass.
+Submission freezes both the JSON and the rendered HTML onto an immutable
+`PostVersion` row (ADR-006); `title`/`departmentId`/`priority` stay on
+the mutable `Post`.
+
+Two architectural questions came up that the spec doesn't gate behind a
+later phase, so this phase answers them for real rather than stubbing
+them: `DATABASE.md` §5 says routing is "computed server-side at
+submission — never in the frontend" and that a seeded catch-all rule
+"guarantees a route always resolves", and `ARCHITECTURE.md`/`CLAUDE.md`
+both say every workflow transition goes through one state-machine table
+with no second path. So `route-resolution.ts` and `state-machine.ts` are
+real now: `resolveApprovalRoute` matches seeded rules by priority order,
+department, post priority and creator group, resolves the assignee
+(including `DEPARTMENT_MANAGER` → `Department.managerId`), and is the one
+function both the live readiness checklist and actual submission call;
+`state-machine.ts`'s `TRANSITIONS` table is the single source
+`assertLegalTransition` checks, with only `SUBMIT`/`RESUBMIT` executed
+this phase (Phase 11 adds the approver-facing transitions). `submit.ts`
+runs the whole thing — row lock, `lockVersion` check, transition
+assertion, a final server-side readiness re-check, route resolution,
+version freeze, assignment creation, audit write — inside one
+`prisma.$transaction`. `dueAt`/`warningAt` and email notification are
+deliberately left for Phase 19; the assignment is created `PENDING` with
+no deadline yet.
+
+Auditing the ownership policy while wiring `POST_SUBMIT` into
+`protectedHandler` found a real gap: `OWNED_POST_PERMISSIONS`
+(`src/modules/authorization/service.ts`) only listed
+`POST_READ_OWN`/`POST_EDIT_OWN`, so `POST_SUBMIT`, `POST_DELETE_OWN` and
+`POST_CANCEL` weren't scoped to the owning user at all — any authenticated
+employee could have submitted, deleted or cancelled someone else's draft.
+Fixed by adding all three to the set (cross-user access still correctly
+returns 403, matching the existing owned-post policy's deliberate
+403-not-404 design) and extending `authorization.test.ts`'s scoped-policy
+assertions to cover them.
+
+Two more real bugs surfaced during verification, both fixed before
+landing. First, a genuine DoS: `content-schema.ts`'s recursive block-node
+schema originally used a plain `z.union`, which retries every branch on
+failure — an adversarial 40-level-deep nested payload drove one process
+to 8.5GB RSS and 200%+ CPU before it was killed. Zod unions inside a
+recursive `z.lazy()` schema multiply cost across depth; a
+`z.discriminatedUnion("type", [...])` only tries the one matching branch,
+so the same fixture now validates in single-digit milliseconds regardless
+of depth. `MAX_NESTING_DEPTH = 32` is kept as a second, independent
+bound. Second, a build-time crash: `npm run build` logged repeated
+`Cannot find module 'thread-stream/lib/worker.js'` errors during static
+generation — Phase 8 is the first phase where a route handler imports
+`@/server/logger` at build-analysis time, and pino's `transport` option
+spawns a worker thread that Next.js/Turbopack's build sandbox can't
+resolve. Fixed by switching `server/logger.ts` from the `transport`
+option to pino-pretty's synchronous destination-stream form
+(`pino(options, pinoPretty(...))`), which needs no worker thread; the
+build is now clean under both `LOG_FORMAT=pretty` and `=json`.
+
+Testing this phase's flows against a single shared, persistent Postgres
+database (rather than a disposable schema) surfaced a second class of
+issue beyond Phase 7's password race: `tests/integration/dashboard.test.ts`
+began failing intermittently once new integration test files created
+users concurrently, because Vitest's default file-level parallelism has
+every file racing against the same rows. Fixed with `fileParallelism:
+false` in `vitest.config.mts`. The e2e equivalent was worse:
+`editor.spec.ts` submits a real post against the real dev database, which
+both permanently changes the counts `dashboard.spec.ts` pins to the
+seeded fixture and, under Playwright's default multi-worker pool, raced
+badly enough with concurrent submissions to blow past request timeouts.
+Fixed two ways together: `tests/e2e/support/db-cleanup.ts` (backed by a
+new `prisma/delete-post-by-title.ts` script) deletes every post the suite
+creates in `afterEach` by its distinctive title, and `playwright.config.ts`
+now sets `fullyParallel: false`/`workers: 1` to remove the cross-spec
+contention outright rather than chase individual races — both changes are
+documented inline as a deliberate consequence of sharing one real database
+across specs. A related, longer-lived issue: the seeded hero post's
+`dueAt`/`warningAt` were computed once relative to whenever `db:seed`
+first ran, so "due in 6h" silently drifted into "overdue" purely from
+wall-clock time elapsing across a long-lived dev session — this broke
+`dashboard.spec.ts`'s "Due soon" assertion with no code change involved.
+Fixed by having `seedHeroPost` refresh the open assignment's
+`dueAt`/`warningAt` and the post's own mirrored `dueAt` on every seed run
+(not just the first), explicitly leaving the frozen `PostVersion` alone
+per ADR-006.
+
+- **Exit — verified**: `tests/e2e/editor.spec.ts` drives the full
+  CREATE → type → autosave → (blocked: no department) → pick department →
+  preview → submit flow in a real browser against the seeded "Marketing
+  content" rule, asserting the resolved approver ("Jane Manager") never
+  leaks the rule's internal name and that the confirmation shows
+  "Version 1"/"Assigned to Jane Manager"; a second test asserts zero
+  axe violations on the editor; a third drives the same create flow at a
+  375px viewport and asserts the sticky action bar and the mobile
+  readiness summary's expand/collapse both work. Hostile-HTML coverage
+  lives in `tests/unit/content-schema.test.ts` (script tags, `javascript:`
+  links, oversized/deeply-nested documents all rejected) and
+  `content-render.test.ts` (every mark and node renders only its
+  whitelisted tag, nothing else reaches the DOM). 36 new vitest tests
+  (13 posts-editor + 3 posts-routes integration, plus schema/render/
+  component unit tests) and 3 new Playwright specs bring the suite to 172
+  vitest + 15 Playwright tests, all green repeatably; `lint`, `typecheck`,
+  `format:check` and `build` are clean, with no AI-related affordance,
+  label, table, or endpoint anywhere in the phase.
 
 ### Phase 9 · File upload and local storage
 

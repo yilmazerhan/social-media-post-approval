@@ -40,6 +40,9 @@ function makeUser(overrides: Partial<AuthorizedUser> = {}): AuthorizedUser {
 const SCOPED_PERMISSIONS = new Set<PermissionKey>([
   "POST_READ_OWN",
   "POST_EDIT_OWN",
+  "POST_SUBMIT",
+  "POST_DELETE_OWN",
+  "POST_CANCEL",
   "POST_APPROVE",
   "POST_REJECT",
   "POST_REQUEST_CHANGES",
@@ -78,13 +81,16 @@ describe("can — grant-only permissions", () => {
   });
 });
 
-describe("can — owned-post policy (POST_READ_OWN / POST_EDIT_OWN)", () => {
+describe("can — owned-post policy (POST_READ_OWN / POST_EDIT_OWN / POST_SUBMIT / POST_DELETE_OWN / POST_CANCEL)", () => {
   const employee = makeUser({ permissions: roleGrants("EMPLOYEE") });
 
-  it("allows reading and editing your own post", () => {
+  it("allows reading, editing, submitting, deleting and cancelling your own post", () => {
     const own: PolicyResource = { kind: "owned-post", creatorId: employee.id };
     expect(can(employee, "POST_READ_OWN", own)).toBe(true);
     expect(can(employee, "POST_EDIT_OWN", own)).toBe(true);
+    expect(can(employee, "POST_SUBMIT", own)).toBe(true);
+    expect(can(employee, "POST_DELETE_OWN", own)).toBe(true);
+    expect(can(employee, "POST_CANCEL", own)).toBe(true);
   });
 
   it("denies cross-user draft access even though the permission is granted", () => {
@@ -94,6 +100,9 @@ describe("can — owned-post policy (POST_READ_OWN / POST_EDIT_OWN)", () => {
     };
     expect(can(employee, "POST_READ_OWN", someoneElses)).toBe(false);
     expect(can(employee, "POST_EDIT_OWN", someoneElses)).toBe(false);
+    expect(can(employee, "POST_SUBMIT", someoneElses)).toBe(false);
+    expect(can(employee, "POST_DELETE_OWN", someoneElses)).toBe(false);
+    expect(can(employee, "POST_CANCEL", someoneElses)).toBe(false);
     expect(() => assert(employee, "POST_EDIT_OWN", someoneElses)).toThrow(
       ForbiddenError,
     );
@@ -103,10 +112,12 @@ describe("can — owned-post policy (POST_READ_OWN / POST_EDIT_OWN)", () => {
     const noGrants = makeUser();
     const own: PolicyResource = { kind: "owned-post", creatorId: noGrants.id };
     expect(can(noGrants, "POST_READ_OWN", own)).toBe(false);
+    expect(can(noGrants, "POST_SUBMIT", own)).toBe(false);
   });
 
   it("fails closed with no resource, or the wrong resource kind", () => {
     expect(can(employee, "POST_EDIT_OWN")).toBe(false);
+    expect(can(employee, "POST_SUBMIT")).toBe(false);
     expect(
       can(employee, "POST_EDIT_OWN", {
         kind: "approval-read",

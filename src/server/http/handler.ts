@@ -41,6 +41,16 @@ export class WorkflowError extends Error {
   }
 }
 
+/** A business-rule validation failure discovered against loaded state (not the request body) — e.g. the readiness checklist at submit time. Maps to 422 like a Zod failure. */
+export class NotReadyError extends Error {
+  constructor(
+    message: string,
+    public readonly details: { field: string; message: string }[],
+  ) {
+    super(message);
+  }
+}
+
 export interface RouteContext {
   params: Promise<Record<string, string>>;
 }
@@ -201,6 +211,9 @@ export function protectedHandler<TInput = undefined, TResource = undefined>(
       }
       if (err instanceof WorkflowError) {
         return jsonError(409, err.code, err.message);
+      }
+      if (err instanceof NotReadyError) {
+        return jsonError(422, "VALIDATION_FAILED", err.message, err.details);
       }
       logger.error({ err }, "Unhandled error in protected handler");
       return jsonError(500, "INTERNAL_ERROR", "Something went wrong.");

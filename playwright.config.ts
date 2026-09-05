@@ -6,7 +6,17 @@ export default defineConfig({
   // support/global-setup.ts for why that matters with more than one spec
   // file logging in as them.
   globalSetup: "./tests/e2e/support/global-setup.ts",
-  fullyParallel: true,
+  // Every spec shares one real, persistent dev database rather than a
+  // disposable per-run schema — some specs read exact counts seeded by
+  // db:seed (tests/e2e/dashboard.spec.ts), and others now create and
+  // submit real posts against that same database (tests/e2e/editor.spec.ts).
+  // Two workers running those concurrently raced: a submit's `SELECT ...
+  // FOR UPDATE` plus new-post creation was enough contention to blow past
+  // request timeouts, and the resulting nondeterministic row counts broke
+  // the exact-count assertions. One worker removes the whole class of
+  // cross-spec interference instead of chasing individual races.
+  fullyParallel: false,
+  workers: 1,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   reporter: "list",

@@ -75,6 +75,23 @@ export async function postJson<T>(
   return handleResponse<T>(response);
 }
 
+export async function patchJson<T>(
+  url: string,
+  body: unknown,
+  options: { csrfCookieName?: string } = {},
+): Promise<T> {
+  const response = await fetch(url, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      ...csrfHeaders(options.csrfCookieName),
+    },
+    credentials: "same-origin",
+    body: JSON.stringify(body),
+  });
+  return handleResponse<T>(response);
+}
+
 export async function deleteJson<T>(
   url: string,
   options: { csrfCookieName?: string } = {},
