@@ -4,7 +4,7 @@ The build order, what "done" means at each step, and where we currently are.
 The 28 phases from the master specification are grouped into seven milestones so
 progress is reviewable in meaningful chunks rather than one uncontrolled change.
 
-**Current status: Phase 5 complete — awaiting the go-ahead to start Phase 6.**
+**Current status: Phase 6 complete — awaiting the go-ahead to start Phase 7.**
 
 ---
 
@@ -323,14 +323,76 @@ roles.test.ts` (7 tests) re-proves the same grants against the real
 
 ## Milestone 2 — Shell and content (Phases 6–10)
 
-### Phase 6 · Application shell and design system
+### Phase 6 · Application shell and design system — **complete**
 
-Sidebar, top bar, breadcrumbs, notification bell, user menu (password entry for
-LOCAL users only), role-aware navigation, and the component inventory from
-`UI_UX_SPEC.md` including `DataTable`, `StatusBadge`, `PriorityBadge`,
-`SLAIndicator`, `EmptyState`, `ErrorState`, `Toast`, `ConfirmationDialog`.
-**Exit**: shell renders for all three roles with correct navigation; axe reports
-no violations on the shell; four breakpoints verified.
+Delivered: the shadcn primitives Phase 2 didn't yet need — `avatar`,
+`separator`, `tooltip`, `dialog`, `sheet` (a Dialog-based slide-over,
+reused for the mobile nav drawer), `dropdown-menu`, `badge`, `table`, and
+a Radix-based `toast`/`toaster`/`useToast` — plus the app-level layer
+`UI_UX_SPEC.md` §2 names for Phase 6 specifically: `StatusBadge` and
+`PriorityBadge` (colour _and_ icon _and_ label, never colour alone, per
+its own status/priority tables), `SLAIndicator` (on-track/warning-at-75%/
+overdue), `EmptyState`, `ErrorState` (message, Retry, and an optional
+`traceId` — never a stack trace), `ConfirmationDialog`, and `DataTable` —
+a `@tanstack/react-table` wrapper with sorting, pagination and column
+visibility. `@tanstack/react-table` is pinned to the 8.x line deliberately:
+`npm install`'s "latest" resolves to a 9.0 rewrite with a different,
+undocumented-here API (no `useReactTable`/`getCoreRowModel`/`flexRender`),
+the same kind of surprise the Prisma 7.10 pin in Phase 3 guarded against.
+
+The shell itself — `Sidebar` (collapsible, `localStorage`-persisted),
+`TopBar` (a disabled search input — real search needs Phase 9/10's Posts
+module — `NotificationBell`, `UserMenu`), `Breadcrumbs`, `PageHeader` — is
+wired into `src/app/(app)/layout.tsx`, a Server Component that resolves
+the session via a new `getServerSessionContext()` (the same
+`validateSession` Phase 4 built, reached through `next/headers` cookies
+instead of a route handler's `NextRequest`), redirects to `/login` when
+absent, and computes role-aware navigation server-side via
+`loadAuthorizedUser`/`PERMISSIONS` — "administration" is any permission
+whose catalogue category is `administration`, not a hardcoded list.
+Nav items cross the Server → Client Component boundary as a plain
+`{label, href, iconId}` — never the Lucide icon component itself, which
+is a function React Server Components can't serialize; the client-side
+`NAV_ICONS` map (in `sidebar.tsx`) does the id → icon lookup instead, a
+real bug this phase's own tests caught and fixed. The user menu's
+"Change Password" (LOCAL users only, per the exit criteria) opens a
+dialog wired to Phase 4's existing endpoint; "Sessions" links to a real,
+working `/account/sessions` page (list + revoke, over the Phase 4
+session APIs) — both already had a working backend with no UI in front
+of it. `/notifications`, `/posts`, `/posts/new`, `/approvals`, `/reports`
+and `/admin` are honest placeholders (`ComingSoon`, naming the phase that
+builds each one for real) rather than dead links, since Posts (8/9/10),
+Approvals (11-14), Reports (22) and Administration (21) don't exist yet;
+root `/` keeps Phase 2's placeholder rather than redirecting, since there
+is no real dashboard yet to send an authenticated visitor to — Phase 7
+is the natural point to add that redirect.
+
+Two real bugs surfaced and fixed while building this, beyond the nav-item
+serialization one: `test:e2e` didn't load `.env`, so a fresh session's
+Playwright process couldn't see `DATABASE_URL`/etc. at all (fixed by
+wrapping it in `dotenv -e .env --`, matching `test`/`pretest`), and the
+e2e webServer's hardcoded port (3100, chosen so it never collides with a
+real `next dev` on 3000) didn't match `.env`'s `APP_URL` (3000), so every
+CSRF-protected login in the shell suite failed Origin verification before
+this phase ever touched a line of shell code — fixed with a `playwright.config.ts`
+env override scoped to that one webServer process.
+
+- **Exit — verified**: `tests/e2e/shell.spec.ts` logs in as each of the
+  three seeded demo accounts (spawning `db:seed` once and parsing its
+  printed password, exactly like `seed-idempotency.test.ts` already does,
+  plus a small `reset-demo-login-attempts` script so repeated local runs
+  never trip the real `RATE_LIMIT_AUTH_MAX`) and asserts the exact nav
+  item set for EMPLOYEE, APPROVER and ADMIN; an `@axe-core/playwright`
+  scan of the authenticated shell reports zero violations; all four
+  breakpoints (≥1280, 1024–1279, 768–1023, <768) are exercised, with the
+  sidebar persistent at ≥1024 and a working slide-over drawer (hamburger
+  → nav reachable) below it — a two-mode simplification of the spec's
+  three-mode ideal (persistent / auto-icon-only / drawer) recorded here
+  deliberately rather than silently. 9 e2e tests plus 12 new unit tests
+  (`StatusBadge`/`PriorityBadge`/`SLAIndicator`/`EmptyState`/`ErrorState`/
+  `DataTable`) bring the suite to 119 vitest + 9 Playwright tests, all
+  passing repeatably; `lint`, `typecheck`, `format:check` and `build` are
+  all still clean.
 
 ### Phase 7 · Dashboards
 

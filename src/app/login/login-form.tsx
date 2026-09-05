@@ -31,7 +31,7 @@ export function LoginForm({ samlEnabled }: { samlEnabled: boolean }) {
     setFormError(null);
     try {
       await postJson("/api/v1/auth/login", values);
-      router.push("/");
+      router.push("/dashboard");
       router.refresh();
     } catch (err) {
       if (err instanceof ApiError) {

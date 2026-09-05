@@ -1,4 +1,5 @@
 /** Per-request helpers shared by every route handler under /api/v1/auth. */
+import { cookies } from "next/headers";
 import type { NextRequest } from "next/server";
 import { config } from "@/server/config";
 import {
@@ -29,6 +30,18 @@ export async function getSessionContext(
   request: NextRequest,
 ): Promise<ValidSession | null> {
   const cookieValue = request.cookies.get(SESSION_COOKIE_NAME)?.value;
+  if (!cookieValue) return null;
+  return validateSession(cookieValue);
+}
+
+/**
+ * The same lookup for Server Components and layouts, which read cookies
+ * via next/headers rather than a NextRequest — the (app) route group's
+ * layout uses this to redirect an unauthenticated visitor to /login.
+ */
+export async function getServerSessionContext(): Promise<ValidSession | null> {
+  const cookieStore = await cookies();
+  const cookieValue = cookieStore.get(SESSION_COOKIE_NAME)?.value;
   if (!cookieValue) return null;
   return validateSession(cookieValue);
 }
