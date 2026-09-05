@@ -94,6 +94,8 @@ Before implementing:
 
 Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
 
+Precedence: an abstraction the specification asks for (FileStorage, EmailService, configurable retention/SLA) counts as requested; one I invented does not.
+
 ## 3. Surgical Changes
 
 **Touch only what you must. Clean up only your own mess.**
