@@ -5,4 +5,11 @@
  * from here — never from a file inside this directory directly. See
  * ARCHITECTURE.md §2 (module rules) for the boundary contract.
  */
-export {};
+export { buildLoginRedirectUrl, generateSpMetadata } from "./client";
+export { processSamlAcs, type SamlAcsInput, type SamlAcsResult } from "./acs";
+export {
+  SamlDisabledError,
+  SamlRejectedError,
+  type SamlRejectionReason,
+} from "./errors";
+export { sweepExpiredReplayGuards } from "./replay-guard";

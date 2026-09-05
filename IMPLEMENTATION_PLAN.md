@@ -4,7 +4,7 @@ The build order, what "done" means at each step, and where we currently are.
 The 28 phases from the master specification are grouped into seven milestones so
 progress is reviewable in meaningful chunks rather than one uncontrolled change.
 
-**Current status: Phase 3 complete — awaiting the go-ahead to start Phase 4.**
+**Current status: Phase 4 complete — awaiting the go-ahead to start Phase 5.**
 
 ---
 
@@ -152,17 +152,99 @@ Phase 4, where a `PasswordHistory` table would need to be added.
 
 ## Milestone 1 — Identity (Phases 4–5)
 
-### Phase 4 · Authentication
+### Phase 4 · Authentication — **complete**
 
-- `modules/auth/local`: Argon2id hashing, policy, login, lockout, reset, change.
-- `modules/auth/session`: server-side sessions, cookie handling, idle/absolute
-  timeout, rotation, revocation, logout-all.
-- `modules/auth/saml`: metadata endpoint, AuthnRequest, ACS with the full
-  validation list, replay guard, attribute mapping, JIT provisioning.
-- Login screen, SAML button, forgot/reset screens, session middleware, CSRF.
-- **Exit**: local login, lockout, reset and change all work end to end; SAML
-  fixtures pass and every malformed variant is rejected with the right reason
-  code; a disabled user's live session dies on the next request.
+Delivered: `modules/auth/local` — Argon2id via `@node-rs/argon2` (ADR-004,
+parameters from config so they can be raised later without a code change,
+`needsRehash` transparently upgrades a login's hash in place), a
+length/case/digit policy plus an email-local-part/display-name substring
+check, `loginLocal` (constant-shape rejection for an unknown email via a
+cached dummy-hash verify, so response timing can't reveal account
+existence), lockout (`LOCKOUT_THRESHOLD` failures locks for
+`LOCKOUT_DURATION_MINUTES`, durable via `User.failedLoginCount`/`lockedUntil`
+rather than in memory) and a separate, durable rate limit (`LoginAttempt`
+rows counted by email _and_ by IP over `RATE_LIMIT_AUTH_WINDOW_MINUTES`),
+`requestPasswordReset`/`completePasswordReset` (single-use hashed tokens,
+real `BackgroundJob` `EMAIL_SEND` enqueue, every other session revoked on
+completion), and `changePassword` (revokes every other session while
+keeping the caller's). `modules/auth/session` — sessions are database rows,
+not stateless tokens: the cookie encodes `sessionId.secret`, only the
+secret's SHA-256 is ever persisted, `validateSession` enforces absolute and
+idle timeout and dies immediately for a revoked, disabled or deleted user,
+refusing to leave a live cookie behind.
+
+`modules/auth/saml` implements Entra ID SAML 2.0 (ADR-003) against
+`@node-saml/node-saml`: metadata, SP-initiated `AuthnRequest`, and an ACS
+validation chain covering signature, issuer/audience, timestamps and clock
+skew (node-saml), `InResponseTo` binding, signature-algorithm floor and
+replay. `InResponseTo` is bound statelessly via a signed, HMAC'd
+`RelayState` carrying the request ID and post-login redirect path, rather
+than node-saml's own cache provider — which would need a shared, durable
+store across replicas — a decision recorded in `config.ts`'s comments.
+Replay is enforced with a real unique-constraint table
+(`SamlReplayGuard.assertionId`), not an in-memory set. JIT provisioning
+grants exactly the one configured default role; group→role mapping and
+department auto-linking need administrator-managed tables `DATABASE.md`
+doesn't define yet, so both stay deferred to Phase 5/21, matching Phase 3's
+existing password-history deferral below. Building the SAML integration
+tests (see Exit) surfaced and fixed a real bug: the SHA-1/DSA-SHA1 veto was
+checking `profile.getAssertionXml()`, whose content has already had its
+`<Signature>` element stripped out by the enveloped-signature transform
+node-saml verified it through — meaning the veto could never fire. It now
+reads the same, already-verified assertion from the raw, undamaged
+`profile.getSamlResponseXml()` instead.
+
+12 route handlers under `/api/v1/auth` (login, logout, logout-all, session,
+sessions list/revoke-one, password change/forgot/reset, SAML
+login/acs/metadata) sit behind `src/server/http/envelope.ts` (API.md's
+success/error envelope) and `csrf.ts`. CSRF is a double-submit cookie plus
+an Origin/`Sec-Fetch-Site` check, split via a `requireToken: boolean`: a
+fresh, unauthenticated visitor cannot hold a CSRF cookie before their first
+login request, so login/forgot/reset accept the Origin check alone, while
+every endpoint that acts on an existing session requires the token too. The
+SAML ACS endpoint skips CSRF entirely and says why in comments — the POST
+to it is a legitimate cross-origin request from the IdP. Login, forgot-
+password and reset-password got hand-authored shadcn-style pages (the
+shadcn CLI itself is blocked by this sandbox's network policy, as in
+Phase 2) using React Hook Form + Zod and a small shared `postJson`/`ApiError`
+client wrapper; forgot-password shows the same neutral confirmation
+regardless of whether the email exists, masking existence but not
+request-shape validity (a malformed address still gets a real 422).
+
+Not resolved this phase, carried forward explicitly rather than silently
+dropped: `AUTHENTICATION.md` §2's common-password-list and password-history
+checks still have no `PasswordHistory` table to back them — `DATABASE.md`
+doesn't define one, so adding it needs a schema decision (and a bundled
+word list) made deliberately rather than bolted on here.
+
+- **Exit — verified**: `tests/integration/local-auth.test.ts` (17 tests)
+  proves the full local flow end to end against the real test database —
+  successful login resets counters and audits, a wrong password increments
+  `failedLoginCount`, five straight failures lock the account and a sixth
+  attempt with the _correct_ password still fails, an unknown email and a
+  disabled account both fail identically to a valid account with a bad
+  password, the full request → reset → login-with-new-password round trip
+  works with the token proven single-use, and `changePassword` revokes
+  every other session while keeping the caller's. The Phase 4 exit
+  criterion itself — a disabled user's live session dies on the very next
+  request — is asserted directly: `validateSession` succeeds, the account
+  is disabled out from under it, and the same cookie is rejected and its
+  session revoked (`USER_DISABLED`) on the next call; expired and
+  idle-timed-out sessions are covered the same way. `tests/integration/
+saml-acs.test.ts` (14 tests) signs fake IdP responses with a throwaway
+  key pair (`tests/fixtures/saml`) and drives every documented rejection
+  reason to its exact code — `RELAY_STATE_INVALID`, `IN_RESPONSE_TO_MISMATCH`,
+  `VALIDATION_FAILED` (tampered signature, expired assertion, wrong
+  audience, unsigned assertion — four independent ways to reach it),
+  `WEAK_SIGNATURE_ALGORITHM`, `REPLAYED`, `ATTRIBUTE_MAPPING_FAILED`,
+  `ACCOUNT_INACTIVE`, `LOCAL_LINK_FORBIDDEN`, `NO_ACCOUNT_PROVISIONED` — plus
+  the happy path (JIT-provisions a user, grants the default role, creates a
+  session). `NO_PROFILE` and `MISSING_ASSERTION_ID` are defense-in-depth
+  branches that reading node-saml's source shows can't be reached by an
+  actual signed response; `tests/unit/signature-check.test.ts` covers their
+  extraction helpers directly instead, with a comment explaining why. 64
+  automated tests pass repeatably across three consecutive runs; `lint`,
+  `typecheck`, `format:check` and `build` are all still clean.
 
 ### Phase 5 · RBAC and authorization
 

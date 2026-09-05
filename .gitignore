@@ -23,6 +23,9 @@ test-results/
 *.key
 *.crt
 certs/
+# Throwaway keys used only to sign fake SAML responses in tests — see
+# tests/fixtures/saml/README.md. They protect nothing real.
+!tests/fixtures/saml/*.pem
 
 # local data
 data/

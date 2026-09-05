@@ -7,3 +7,14 @@
  */
 export { hashPassword, verifyPassword, needsRehash } from "./password";
 export { checkPasswordPolicy } from "./password-policy";
+export { loginLocal, type LoginInput } from "./login";
+export { requestPasswordReset, completePasswordReset } from "./password-reset";
+export { changePassword } from "./password-change";
+export {
+  InvalidCredentialsError,
+  ProviderMismatchError,
+  AccountLockedError,
+  RateLimitedError,
+  PasswordPolicyError,
+  InvalidResetTokenError,
+} from "./errors";
