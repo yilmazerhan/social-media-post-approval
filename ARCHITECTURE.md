@@ -11,11 +11,11 @@ made elsewhere in the codebase.
 The platform runs entirely on customer-controlled Linux infrastructure. Three
 external integrations exist, and only three:
 
-| Integration | Direction | Purpose | Failure behaviour |
-| --- | --- | --- | --- |
-| Microsoft Entra ID (SAML 2.0) | Browser-mediated redirect/POST | Authentication for `ENTRA_ID` users | Local login continues to work |
-| Corporate SMTP | Outbound from worker | Email delivery | Jobs retry with backoff; in-app notifications unaffected |
-| PostgreSQL (optionally customer-managed) | Outbound from app + worker | Persistence | Application reports unhealthy |
+| Integration                              | Direction                      | Purpose                             | Failure behaviour                                        |
+| ---------------------------------------- | ------------------------------ | ----------------------------------- | -------------------------------------------------------- |
+| Microsoft Entra ID (SAML 2.0)            | Browser-mediated redirect/POST | Authentication for `ENTRA_ID` users | Local login continues to work                            |
+| Corporate SMTP                           | Outbound from worker           | Email delivery                      | Jobs retry with backoff; in-app notifications unaffected |
+| PostgreSQL (optionally customer-managed) | Outbound from app + worker     | Persistence                         | Application reports unhealthy                            |
 
 Nothing else leaves the network. No telemetry, no CDN, no font service, no
 update check.
@@ -269,7 +269,7 @@ Detail in [AUTHENTICATION.md](./AUTHENTICATION.md). Architectural summary:
   storage is what makes "logout everywhere", admin-triggered revocation and
   disabled-user invalidation actually work — a stateless JWT cannot.
 - **Authorization** is one service: `authorization.can(user, permission,
-  resource?)`. Role→permission grants answer the coarse question; resource
+resource?)`. Role→permission grants answer the coarse question; resource
   policies (`ownsPost`, `isAssignedApprover`, `sameDepartment`) answer the fine
   one. UI visibility is derived from the same function, so the screen and the
   server never disagree.
@@ -283,11 +283,11 @@ shipped.
 
 ```ts
 interface FileStorage {
-  save(input: SaveInput): Promise<StoredObject>
-  read(key: string): Promise<Readable>
-  stat(key: string): Promise<ObjectStat>
-  delete(key: string): Promise<void>
-  exists(key: string): Promise<boolean>
+  save(input: SaveInput): Promise<StoredObject>;
+  read(key: string): Promise<Readable>;
+  stat(key: string): Promise<ObjectStat>;
+  delete(key: string): Promise<void>;
+  exists(key: string): Promise<boolean>;
 }
 ```
 
@@ -319,8 +319,8 @@ ever sent to an external processing service.
 A PostgreSQL-backed queue. No Redis, no broker.
 
 - **Claim**: `SELECT … FROM "BackgroundJob" WHERE status='PENDING' AND
-  "scheduledAt" <= now() ORDER BY priority, "scheduledAt" FOR UPDATE SKIP
-  LOCKED LIMIT n` — the standard Postgres queue pattern, safe for multiple
+"scheduledAt" <= now() ORDER BY priority, "scheduledAt" FOR UPDATE SKIP
+LOCKED LIMIT n` — the standard Postgres queue pattern, safe for multiple
   workers.
 - **Lifecycle**: `PENDING → RUNNING → SUCCEEDED | FAILED | DEAD`, with
   `attempts`, `maxAttempts`, exponential backoff, `lastError`, and a
@@ -386,11 +386,11 @@ host, SAML certificate, storage path) stay in the environment.
 
 ## 11. Testing strategy
 
-| Level | Tool | Scope |
-| --- | --- | --- |
-| Unit | Vitest | state machine, RBAC decisions, SLA maths, retention selection, validation, version diff, password policy |
+| Level       | Tool                     | Scope                                                                                                                                            |
+| ----------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Unit        | Vitest                   | state machine, RBAC decisions, SLA maths, retention selection, validation, version diff, password policy                                         |
 | Integration | Vitest + real PostgreSQL | Prisma queries, transactions, upload pipeline, queue claim/retry, email logging, notification fan-out, SAML response validation against fixtures |
-| E2E | Playwright | the 21-step business journey in the master spec, plus explicit negative-authorization cases |
+| E2E         | Playwright               | the 21-step business journey in the master spec, plus explicit negative-authorization cases                                                      |
 
 Integration tests run against a disposable PostgreSQL (compose service or
 `postgres` in CI), migrated fresh, seeded per test file. SQLite is not used.
@@ -400,6 +400,7 @@ Integration tests run against a disposable PostgreSQL (compose service or
 ## 12. Decision log
 
 ### ADR-001 Modular monolith
+
 **Decision**: one Next.js application plus one worker, internally modular.
 **Why**: air-gapped operability, transactional workflow, a small operations
 surface (four containers). **Rejected**: microservices — no independent scaling
@@ -407,6 +408,7 @@ need, and distributed transactions would complicate the one thing that must be
 correct.
 
 ### ADR-002 Custom session layer instead of Auth.js adapters
+
 **Decision**: implement session issuance/validation/revocation in
 `modules/auth/session`, backed by a `Session` table and a signed cookie.
 **Why**: the requirements demand admin-side revocation, "logout all sessions",
@@ -418,6 +420,7 @@ directly. **Compatible with** the Auth.js architecture should we later adopt it
 for additional providers.
 
 ### ADR-003 SAML via a maintained Node library
+
 **Decision**: use `@node-saml/node-saml` for SP-side SAML 2.0 handling, wrapped
 in `modules/auth/saml` behind our own provider interface.
 **Why**: signature, issuer, audience, destination and timestamp validation are
@@ -426,12 +429,14 @@ and replay cache is the responsible choice. **Consequence**: library upgrades
 are security-relevant and tracked.
 
 ### ADR-004 Argon2id for local passwords
+
 **Decision**: `@node-rs/argon2` (native, no build toolchain at runtime),
 Argon2id, parameters from RFC 9106's recommendations and OWASP guidance,
 tunable by environment. **Why**: memory-hard, current best practice.
 **Rejected**: bcrypt (72-byte input limit, not memory-hard).
 
 ### ADR-005 PostgreSQL-backed job queue
+
 **Decision**: jobs in the application database, claimed with `FOR UPDATE SKIP
 LOCKED`. **Why**: the requirement is explicitly "no Redis/Kafka/RabbitMQ unless
 unavoidable"; our throughput is a few thousand jobs a day. **Consequence**:
@@ -439,6 +444,7 @@ queue depth shares the database's fate — acceptable, since nothing works witho
 the database anyway.
 
 ### ADR-006 Versions freeze at submission, not on every edit
+
 **Decision**: autosave mutates the draft; submission freezes an immutable
 `PostVersion`. **Why**: version history is a review artefact, not an undo log;
 one version per submission is what approvers reason about. **Consequence**:
@@ -446,6 +452,7 @@ draft recovery is served by the draft record itself, and an approved post that
 is edited returns to `DRAFT` with a new version pending.
 
 ### ADR-007 Tiptap JSON as the source of truth, sanitized HTML as a derivative
+
 **Decision**: store the editor's JSON document plus a server-sanitized HTML
 rendering plus extracted plain text. **Why**: JSON survives editor upgrades and
 enables structural diffing; HTML is never trusted from the client — it is
@@ -454,11 +461,13 @@ search and the version diff. **Consequence**: rendering never injects
 client-supplied HTML.
 
 ### ADR-008 PostgreSQL full-text search
+
 **Decision**: `tsvector` columns with GIN indexes over title and plain-text
 body, plus trigram indexes for name lookups. **Why**: the requirement forbids
 Elasticsearch without proven need; Postgres handles this corpus comfortably.
 
 ### ADR-009 Server-side rendering by default
+
 **Decision**: React Server Components for reads; Client Components only where
 interaction requires it (editor, decision panel, tables, uploader). TanStack
 Query only for client-held server state. **Why**: fewer round trips, less

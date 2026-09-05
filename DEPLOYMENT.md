@@ -7,22 +7,22 @@ no Internet requirement at runtime, no Kubernetes.
 
 ## 1. Supported environments
 
-| Component | Supported |
-| --- | --- |
-| OS | RHEL 8/9, Rocky/Alma 8/9, Ubuntu 22.04/24.04 LTS, Debian 12 |
-| Container runtime | Docker 24+ with Compose v2, **or** Podman 4.4+ with podman-compose / `podman kube play` |
-| Database | PostgreSQL 16+ (containerised or customer-managed) |
-| Reverse proxy | Nginx 1.24+ (containerised or host-installed) |
-| Node.js (non-container install) | 22 LTS |
+| Component                       | Supported                                                                               |
+| ------------------------------- | --------------------------------------------------------------------------------------- |
+| OS                              | RHEL 8/9, Rocky/Alma 8/9, Ubuntu 22.04/24.04 LTS, Debian 12                             |
+| Container runtime               | Docker 24+ with Compose v2, **or** Podman 4.4+ with podman-compose / `podman kube play` |
+| Database                        | PostgreSQL 16+ (containerised or customer-managed)                                      |
+| Reverse proxy                   | Nginx 1.24+ (containerised or host-installed)                                           |
+| Node.js (non-container install) | 22 LTS                                                                                  |
 
 Sizing for a typical department (≈200 users, ≈100 posts/month):
 
-| Resource | Minimum | Recommended |
-| --- | --- | --- |
-| vCPU | 2 | 4 |
-| RAM | 4 GB | 8 GB |
-| Disk (system) | 20 GB | 40 GB |
-| Disk (uploads) | 50 GB | 200 GB+, on its own volume |
+| Resource       | Minimum | Recommended                |
+| -------------- | ------- | -------------------------- |
+| vCPU           | 2       | 4                          |
+| RAM            | 4 GB    | 8 GB                       |
+| Disk (system)  | 20 GB   | 40 GB                      |
+| Disk (uploads) | 50 GB   | 200 GB+, on its own volume |
 
 Uploads grow with video. Size the storage volume from the customer's expected
 media volume, not from the database size.
@@ -42,11 +42,11 @@ postgres   :5432      data (or a customer-managed server instead)
 
 `app` and `worker` run the same image with a different command. Volumes:
 
-| Volume | Mounted at | Contents |
-| --- | --- | --- |
-| `ca-uploads` | `/opt/content-approval/data/uploads` | attachments, thumbnails, tmp |
-| `ca-pgdata` | `/var/lib/postgresql/data` | database |
-| `./nginx/certs` | `/etc/nginx/certs` (read-only) | TLS certificate, key, chain |
+| Volume          | Mounted at                           | Contents                     |
+| --------------- | ------------------------------------ | ---------------------------- |
+| `ca-uploads`    | `/opt/content-approval/data/uploads` | attachments, thumbnails, tmp |
+| `ca-pgdata`     | `/var/lib/postgresql/data`           | database                     |
+| `./nginx/certs` | `/etc/nginx/certs` (read-only)       | TLS certificate, key, chain  |
 
 ---
 
@@ -114,6 +114,7 @@ Demo/seed content (`npm run db:seed`) is a development-only command and is
 blocked when `NODE_ENV=production`.
 
 ### Air-gapped install
+
 Build the image on a connected workstation, then transfer it:
 
 ```bash
@@ -143,6 +144,7 @@ sudo systemctl enable --now container-content-approval.service
 ```
 
 Notes specific to Podman:
+
 - Add `:Z` to volume mounts on SELinux systems (RHEL): `-v ./data:/data:Z`.
 - Rootless containers cannot bind ports below 1024 — either publish 8080/8443
   and front them with a host Nginx, or set
@@ -260,6 +262,7 @@ Administration → System Health surfaces the same probes plus queue depth,
 failed job count and email delivery state.
 
 ### Upgrade
+
 ```bash
 cd /opt/content-approval/app
 docker compose exec postgres pg_dump -U ca content_approval | gzip > /backup/pre-upgrade-$(date +%F).sql.gz
@@ -274,10 +277,12 @@ back by redeploying the previous image tag; because destructive schema changes
 ship in two steps, the previous version keeps working against the newer schema.
 
 ### Rotating `SESSION_SECRET`
+
 Rotation invalidates every session — all users are logged out. Do it during a
 maintenance window, announce it, then `docker compose up -d app worker`.
 
 ### Log handling
+
 Both processes log JSON to stdout. Collect with the host's existing setup
 (`journald`, `docker compose logs`, or a log shipper the customer already runs).
 Container log rotation is a daemon setting (`max-size`, `max-file`) — set it, or
@@ -307,12 +312,12 @@ Two systemd units — `content-approval.service` (`npm run start`) and
 
 ## 10. Firewall and network
 
-| Direction | Port | Purpose |
-| --- | --- | --- |
-| Inbound | 443 | user access (and 80 for redirect only) |
-| Outbound | 25/465/587 | corporate SMTP |
-| Outbound | 443 | Entra ID SSO endpoints **only when SAML is enabled** |
-| Internal | 5432 | app/worker → PostgreSQL |
+| Direction | Port       | Purpose                                              |
+| --------- | ---------- | ---------------------------------------------------- |
+| Inbound   | 443        | user access (and 80 for redirect only)               |
+| Outbound  | 25/465/587 | corporate SMTP                                       |
+| Outbound  | 443        | Entra ID SSO endpoints **only when SAML is enabled** |
+| Internal  | 5432       | app/worker → PostgreSQL                              |
 
 Nothing else. An egress policy that allows only those destinations is a
 supported configuration and a good way to verify the no-cloud claim.
@@ -340,15 +345,15 @@ supported configuration and a good way to verify the no-cloud claim.
 
 ## 12. Troubleshooting
 
-| Symptom | Likely cause |
-| --- | --- |
-| App exits immediately at start | Configuration validation failed — read the printed list |
-| `/api/ready` reports storage unhealthy | `STORAGE_PATH` not writable by uid 10001, or SELinux label missing (`:Z`) |
-| Uploads fail at ~1 MB | Nginx `client_max_body_size` left at its default |
-| Emails stay `QUEUED` | Worker not running, or SMTP host/port/TLS wrong — check `EmailLog.lastError` |
-| SAML login rejected | ACS URL or entity id mismatch, expired IdP certificate, clock skew — check the `AUTH_SAML_REJECTED` audit reason |
-| Everyone logged out after a deploy | `SESSION_SECRET` changed |
-| Jobs stuck `RUNNING` | Worker died mid-job; they return to `PENDING` after `JOB_STALE_AFTER_SECONDS` |
+| Symptom                                | Likely cause                                                                                                     |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| App exits immediately at start         | Configuration validation failed — read the printed list                                                          |
+| `/api/ready` reports storage unhealthy | `STORAGE_PATH` not writable by uid 10001, or SELinux label missing (`:Z`)                                        |
+| Uploads fail at ~1 MB                  | Nginx `client_max_body_size` left at its default                                                                 |
+| Emails stay `QUEUED`                   | Worker not running, or SMTP host/port/TLS wrong — check `EmailLog.lastError`                                     |
+| SAML login rejected                    | ACS URL or entity id mismatch, expired IdP certificate, clock skew — check the `AUTH_SAML_REJECTED` audit reason |
+| Everyone logged out after a deploy     | `SESSION_SECRET` changed                                                                                         |
+| Jobs stuck `RUNNING`                   | Worker died mid-job; they return to `PENDING` after `JOB_STALE_AFTER_SECONDS`                                    |
 
 ---
 

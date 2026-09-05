@@ -9,7 +9,7 @@ An internal, on-premise **content approval platform**. Employees draft social
 media / corporate content, submit it, and human approvers review, comment on,
 request changes to, reject, or approve a **specific immutable version**.
 
-It is *not* a publishing platform. It does *not* post to LinkedIn, X, Facebook
+It is _not_ a publishing platform. It does _not_ post to LinkedIn, X, Facebook
 or anywhere else.
 
 ## Hard constraints (non-negotiable)
@@ -42,18 +42,18 @@ Architecture: **modular monolith**. No microservices.
 
 ## Read before you write code
 
-| Document | What it settles |
-| --- | --- |
-| [ARCHITECTURE.md](./ARCHITECTURE.md) | Layers, modules, decisions (ADRs), concurrency, jobs |
-| [DATABASE.md](./DATABASE.md) | Entities, enums, indexes, constraints, migration policy |
-| [AUTHENTICATION.md](./AUTHENTICATION.md) | Local auth, SAML, sessions, lockout, RBAC enforcement |
-| [API.md](./API.md) | Endpoint surface, response envelope, error codes |
-| [UI_UX_SPEC.md](./UI_UX_SPEC.md) | Design system, screens, the two hero screens |
-| [SECURITY.md](./SECURITY.md) | Control-by-threat mapping, headers, upload rules |
-| [CONFIGURATION.md](./CONFIGURATION.md) | Every environment variable and its default |
-| [DEPLOYMENT.md](./DEPLOYMENT.md) | Docker/Podman, Nginx, TLS, systemd, upgrades |
-| [BACKUP_RESTORE.md](./BACKUP_RESTORE.md) | Backup, restore, disaster recovery |
-| [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) | Phase order, exit criteria, current status |
+| Document                                           | What it settles                                         |
+| -------------------------------------------------- | ------------------------------------------------------- |
+| [ARCHITECTURE.md](./ARCHITECTURE.md)               | Layers, modules, decisions (ADRs), concurrency, jobs    |
+| [DATABASE.md](./DATABASE.md)                       | Entities, enums, indexes, constraints, migration policy |
+| [AUTHENTICATION.md](./AUTHENTICATION.md)           | Local auth, SAML, sessions, lockout, RBAC enforcement   |
+| [API.md](./API.md)                                 | Endpoint surface, response envelope, error codes        |
+| [UI_UX_SPEC.md](./UI_UX_SPEC.md)                   | Design system, screens, the two hero screens            |
+| [SECURITY.md](./SECURITY.md)                       | Control-by-threat mapping, headers, upload rules        |
+| [CONFIGURATION.md](./CONFIGURATION.md)             | Every environment variable and its default              |
+| [DEPLOYMENT.md](./DEPLOYMENT.md)                   | Docker/Podman, Nginx, TLS, systemd, upgrades            |
+| [BACKUP_RESTORE.md](./BACKUP_RESTORE.md)           | Backup, restore, disaster recovery                      |
+| [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) | Phase order, exit criteria, current status              |
 
 ## House rules
 
@@ -77,6 +77,7 @@ Architecture: **modular monolith**. No microservices.
 **Don't assume. Don't hide confusion. Surface tradeoffs.**
 
 Before implementing:
+
 - State your assumptions explicitly. If uncertain, ask.
 - If multiple interpretations exist, present them - don't pick silently.
 - If a simpler approach exists, say so. Push back when warranted.
@@ -101,12 +102,14 @@ Precedence: an abstraction the specification asks for (FileStorage, EmailService
 **Touch only what you must. Clean up only your own mess.**
 
 When editing existing code:
+
 - Don't "improve" adjacent code, comments, or formatting.
 - Don't refactor things that aren't broken.
 - Match existing style, even if you'd do it differently.
 - If you notice unrelated dead code, mention it - don't delete it.
 
 When your changes create orphans:
+
 - Remove imports/variables/functions that YOUR changes made unused.
 - Don't remove pre-existing dead code unless asked.
 
@@ -117,11 +120,13 @@ The test: Every changed line should trace directly to the user's request.
 **Define success criteria. Loop until verified.**
 
 Transform tasks into verifiable goals:
+
 - "Add validation" → "Write tests for invalid inputs, then make them pass"
 - "Fix the bug" → "Write a test that reproduces it, then make it pass"
 - "Refactor X" → "Ensure tests pass before and after"
 
 For multi-step tasks, state a brief plan:
+
 ```
 1. [Step] → verify: [check]
 2. [Step] → verify: [check]

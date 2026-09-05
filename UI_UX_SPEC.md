@@ -32,6 +32,7 @@ token layer in CSS custom properties. Zero external asset loading — fonts are
 self-hosted (Inter, bundled) with a system fallback stack.
 
 ### Tokens
+
 ```
 --background --foreground --card --popover --muted --border --input --ring
 --primary --primary-foreground        brand blue
@@ -39,21 +40,23 @@ self-hosted (Inter, bundled) with a system fallback stack.
 --destructive --warning --success --info
 --radius: 0.5rem
 ```
+
 Light and dark palettes both defined; dark is available but not the default.
 All pairs meet WCAG 2.2 AA contrast (4.5:1 for body, 3:1 for large text and UI
 boundaries).
 
 ### Status colour map
-| Status | Colour role | Icon | Label |
-| --- | --- | --- | --- |
-| DRAFT | muted / grey | `PencilLine` | Draft |
-| SUBMITTED | info / blue | `Send` | Submitted |
-| IN_REVIEW | primary / indigo | `Eye` | In review |
-| CHANGES_REQUESTED | warning / amber | `Undo2` | Changes requested |
-| APPROVED | success / green | `CheckCircle2` | Approved |
-| REJECTED | destructive / red | `XCircle` | Rejected |
-| CANCELLED | muted | `Ban` | Cancelled |
-| ARCHIVED | muted | `Archive` | Archived |
+
+| Status            | Colour role       | Icon           | Label             |
+| ----------------- | ----------------- | -------------- | ----------------- |
+| DRAFT             | muted / grey      | `PencilLine`   | Draft             |
+| SUBMITTED         | info / blue       | `Send`         | Submitted         |
+| IN_REVIEW         | primary / indigo  | `Eye`          | In review         |
+| CHANGES_REQUESTED | warning / amber   | `Undo2`        | Changes requested |
+| APPROVED          | success / green   | `CheckCircle2` | Approved          |
+| REJECTED          | destructive / red | `XCircle`      | Rejected          |
+| CANCELLED         | muted             | `Ban`          | Cancelled         |
+| ARCHIVED          | muted             | `Archive`      | Archived          |
 
 Priority: LOW (grey, `ChevronDown`), NORMAL (slate, `Minus`), HIGH (amber,
 `ChevronUp`), URGENT (red, `ChevronsUp`).
@@ -63,11 +66,13 @@ overdue (red, `AlertOctagon`) — each with a text remainder such as "Due in 6h"
 or "Overdue by 2h".
 
 ### Typography and spacing
+
 Type scale 12 / 14 / 16 / 20 / 24 / 30 px; body 14px, page titles 24px semibold.
 Spacing on a 4px grid. Max content width 1440px; the two hero screens use the
 full width available.
 
 ### Component inventory
+
 `Button` `IconButton` `Input` `Textarea` `Select` `Combobox` `Checkbox`
 `RadioGroup` `Switch` `DatePicker` `Modal` `Drawer` `Dropdown` `Tabs`
 `Accordion` `Tooltip` `Badge` `StatusBadge` `PriorityBadge` `VersionBadge`
@@ -122,6 +127,7 @@ everywhere the pattern appears. A one-off variant is a bug.
 SUBMIT** and the screen must make all four states legible without documentation.
 
 ### Layout (desktop ≥1280px)
+
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
 │ ‹ My Posts   Introducing Kron PAM 4.0        ✓ Saved 12:04              │
@@ -151,6 +157,7 @@ SUBMIT** and the screen must make all four states legible without documentation.
 ```
 
 ### Behaviour
+
 - **Autosave** every 3 seconds of idle typing and on blur, to
   `POST /posts/:id/autosave`. The status chip cycles
   `Saving… → ✓ Saved HH:MM → ⚠ Save failed — retrying`. It is never silent.
@@ -177,15 +184,17 @@ SUBMIT** and the screen must make all four states legible without documentation.
   > **Your post has been submitted for approval.**
   > `POST-2026-000412` · Version 3 · Assigned to Jane Manager · Status:
   > Submitted · Due in 6 hours
-  with actions *View post* and *Back to My Posts*.
+  > with actions _View post_ and _Back to My Posts_.
 
 ### Responsive
+
 Tablet: the settings column collapses into a bottom sheet opened by a
 "Settings & readiness" button; the toolbar sticks to the top. Mobile: single
 column, sticky action bar with Save draft / Submit, readiness shown as an
 expandable summary ("4 of 5 ready").
 
 ### Accessibility
+
 Editor toolbar is a proper toolbar widget with arrow-key navigation and
 announced button states; the editor exposes a labelled `textbox`; autosave
 status is an `aria-live="polite"` region; the readiness list is a real list with
@@ -200,6 +209,7 @@ file input and keyboard reordering via the item menu.
 and an approver must grasp the situation in about five seconds.
 
 ### Layout (desktop ≥1280px)
+
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
 │ ‹ Approvals    Introducing Kron PAM 4.0                    ‹ Prev  Next › │
@@ -234,6 +244,7 @@ The header line is the five-second summary: status, priority, version, SLA,
 waiting time, creator, department, submission time, assignee.
 
 ### Version comparison
+
 - Default tab when a previous version exists.
 - Text: word-level diff over the extracted plain text, rendered as
   additions (green, underlined) and removals (red, struck through) — with a
@@ -244,25 +255,26 @@ waiting time, creator, department, submission time, assignee.
   "previous → current".
 
 ### Decision panel
+
 - **Sticky** on scroll; on mobile it is a bottom sheet whose collapsed state
   still shows the three actions.
 - Every action opens a confirmation that restates the version:
-  *"Approve version 3 of POST-2026-000412? This approval will reference version
-  3 only."*
+  _"Approve version 3 of POST-2026-000412? This approval will reference version
+  3 only."_
 - Approve: optional comment. Request changes: comment mandatory, minimum length
   enforced. Reject: reason mandatory.
 - Buttons are disabled with an explanatory tooltip when the viewer is not the
   assignee, is the creator, or the post has already been decided.
 - **Concurrency**: the screen polls the post's `lockVersion`/status; if either
-  moves, a banner appears — *"This post changed while you were reviewing.
-  Reload to see version 4."* — and the decision buttons disable. A stale
+  moves, a banner appears — _"This post changed while you were reviewing.
+  Reload to see version 4."_ — and the decision buttons disable. A stale
   decision that slips through is refused server-side with `ALREADY_DECIDED`.
 - **Keyboard**: `A` approve, `C` request changes, `R` reject, `J`/`K` previous
   and next queue item, `?` shortcut help. Each opens the confirmation dialog —
   no shortcut ever decides directly.
 - After a decision, an inline result replaces the panel:
   > **APPROVED** · Version 3 · Approved by Jane Manager · 5 Sep 2026 09:41
-  with *Next in queue* as the primary action.
+  > with _Next in queue_ as the primary action.
 
 The word "AI" appears nowhere on this screen, in any status, label or tooltip.
 
@@ -271,8 +283,9 @@ The word "AI" appears nowhere on this screen, in any status, label or tooltip.
 ## 6. Other screens
 
 ### Dashboard (role-aware)
+
 - **Employee**: stat cards (Drafts, Pending approval, Changes requested,
-  Approved, Rejected), a recent-activity timeline, and a prominent *Create post*
+  Approved, Rejected), a recent-activity timeline, and a prominent _Create post_
   action. Empty state for a brand-new user explains the flow in one sentence.
 - **Approver**: Pending approvals, Due soon, Overdue, Recently completed, and an
   SLA compliance summary; the first card links straight into the queue filtered
@@ -282,6 +295,7 @@ The word "AI" appears nowhere on this screen, in any status, label or tooltip.
   worker and email — each linking to the relevant admin page.
 
 ### My Posts `/posts`
+
 Tabs All / Drafts / Pending approval / Changes requested / Approved / Rejected /
 Archived, over a `DataTable` (TanStack Table) with search, filters (status,
 priority, department, date range), sorting, pagination and column visibility.
@@ -292,22 +306,26 @@ Edit, View feedback, Resubmit; SUBMITTED/IN_REVIEW → View; APPROVED → View,
 Duplicate; REJECTED → View, Duplicate.
 
 ### Post Details `/posts/:id`
+
 Tabs Overview · Preview · Versions · Approval history · Comments · Activity.
 The overview states creator, department, status, priority, current version,
 approved version, approver, timestamps and SLA. When current ≠ approved, that
 difference is called out explicitly rather than implied.
 
 ### Approval Queue `/approvals`
+
 Same table machinery, default sort by due date ascending, with quick filters
 Overdue / Due today / Unassigned / My group, and bulk **assign** (never bulk
 approve — approval is always one deliberate decision on one version).
 
 ### Notifications `/notifications`
+
 Tabs All / Unread / Mentions; grouped by day; each row links to the entity and
 marks itself read; "Mark all as read"; preferences for in-app and email per
 notification type.
 
 ### Reports `/reports`
+
 Filter bar (date range, department, priority, creator, approver) over a set of
 report cards with a table and chart each: submitted / approved / rejected /
 changes requested volume, average approval time, SLA compliance, overdue
@@ -316,13 +334,14 @@ rejection reasons. Every report exports to CSV. Charts are rendered locally, are
 readable in greyscale, and always accompany a data table — never a chart alone.
 
 ### Administration `/admin`
+
 Sections: Users · Roles · Groups · Departments · Approval rules · Workflow ·
 SLA policies · Email configuration · Email templates · Notifications ·
 Retention · Background jobs · Audit logs · System settings.
 Consistent pattern: list → detail drawer → form with Zod validation → confirm →
 toast. Approval rules include a "test this rule" preview that shows which route
 a hypothetical post would take. Retention always defaults to **dry run** and
-shows what *would* be deleted before anything is. Audit logs are read-only, with
+shows what _would_ be deleted before anything is. Audit logs are read-only, with
 no edit or delete affordance anywhere in the UI.
 
 ---
@@ -344,12 +363,12 @@ no edit or delete affordance anywhere in the UI.
 
 ## 8. Responsive behaviour
 
-| Breakpoint | Behaviour |
-| --- | --- |
-| ≥1280px | Full two-column hero layouts, persistent sidebar |
-| 1024–1279px | Sidebar collapses to icons; hero right column narrows |
-| 768–1023px (tablet) | Single column; editor settings and review decision move to bottom sheets; tables scroll horizontally with a pinned first column |
-| <768px (mobile) | Drawer navigation; tables become card lists; **decision actions stay reachable in a sticky bar** with a confirmation step that prevents accidental approval |
+| Breakpoint          | Behaviour                                                                                                                                                   |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ≥1280px             | Full two-column hero layouts, persistent sidebar                                                                                                            |
+| 1024–1279px         | Sidebar collapses to icons; hero right column narrows                                                                                                       |
+| 768–1023px (tablet) | Single column; editor settings and review decision move to bottom sheets; tables scroll horizontally with a pinned first column                             |
+| <768px (mobile)     | Drawer navigation; tables become card lists; **decision actions stay reachable in a sticky bar** with a confirmation step that prevents accidental approval |
 
 Approval Review on a phone is treated as a first-class case, not a fallback:
 the header summary, the content, the diff and the three decisions must all work

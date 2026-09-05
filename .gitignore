@@ -38,3 +38,9 @@ prisma/*.db-journal
 .idea/
 .DS_Store
 Thumbs.db
+
+# next.js extras
+.pnp
+.pnp.*
+.vercel
+*.tsbuildinfo

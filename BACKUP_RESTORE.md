@@ -7,12 +7,12 @@ of the operational contract, not an optional extra.
 
 ## 1. What must be backed up
 
-| Asset | Location | Why |
-| --- | --- | --- |
-| PostgreSQL database | `ca-pgdata` volume / customer DB server | posts, versions, approvals, users, audit log — everything transactional |
-| Uploaded files | `STORAGE_PATH` (default `/opt/content-approval/data/uploads`) | attachments, thumbnails, posters |
-| Configuration | `.env`, `docker-compose.yml`, `nginx/`, TLS certificate and key | reproducing the deployment |
-| Image or source revision | git tag / saved image tar | restoring a *known* version |
+| Asset                    | Location                                                        | Why                                                                     |
+| ------------------------ | --------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| PostgreSQL database      | `ca-pgdata` volume / customer DB server                         | posts, versions, approvals, users, audit log — everything transactional |
+| Uploaded files           | `STORAGE_PATH` (default `/opt/content-approval/data/uploads`)   | attachments, thumbnails, posters                                        |
+| Configuration            | `.env`, `docker-compose.yml`, `nginx/`, TLS certificate and key | reproducing the deployment                                              |
+| Image or source revision | git tag / saved image tar                                       | restoring a _known_ version                                             |
 
 Database and files must be captured **together**. A database referencing files
 that a restore did not bring back is a broken system; the consistency procedure
@@ -26,6 +26,7 @@ Not backed up: container logs (operational only), the `tmp` upload directory,
 ## 2. Backup procedure
 
 ### Database
+
 ```bash
 # nightly logical dump, compressed, custom format
 docker compose exec -T postgres \
@@ -42,6 +43,7 @@ recovery — see the PostgreSQL documentation linked below. Logical dumps alone
 give you last-night's state; PITR gives you last-minute's.
 
 ### Files
+
 ```bash
 # incremental, preserving permissions
 rsync -aH --delete \
@@ -55,6 +57,7 @@ tar -czf /backup/files/uploads-$(date +%F).tar.gz \
 Exclude `uploads/tmp` — it holds partial uploads with no database references.
 
 ### Configuration
+
 ```bash
 tar -czf /backup/config/config-$(date +%F).tar.gz \
   --exclude='*.key' \
@@ -68,12 +71,13 @@ archive as everything else. `.env` contains secrets: encrypt the config backup
 (`gpg --symmetric`, or the customer's backup encryption) and restrict access.
 
 ### Ordering for consistency
+
 1. Snapshot the database first.
 2. Then sync files.
 
 Files are only ever added before their database rows are committed, so a
 file-after-database ordering can leave the dump referencing an attachment the
-file backup missed. Doing it in this order can leave an *extra* file with no
+file backup missed. Doing it in this order can leave an _extra_ file with no
 row — which the orphan-cleanup job removes safely. Extra files are harmless;
 missing files are not.
 
@@ -85,13 +89,13 @@ downtime buys certainty.
 
 ## 3. Schedule and retention
 
-| Backup | Frequency | Keep |
-| --- | --- | --- |
-| Database dump | nightly | 30 daily, 12 monthly |
-| WAL archive (if enabled) | continuous | 7 days |
-| Uploads | nightly incremental | 30 days of versions |
-| Configuration | on every change, plus monthly | 12 months |
-| Off-site / second medium copy | weekly | per the customer's policy |
+| Backup                        | Frequency                     | Keep                      |
+| ----------------------------- | ----------------------------- | ------------------------- |
+| Database dump                 | nightly                       | 30 daily, 12 monthly      |
+| WAL archive (if enabled)      | continuous                    | 7 days                    |
+| Uploads                       | nightly incremental           | 30 days of versions       |
+| Configuration                 | on every change, plus monthly | 12 months                 |
+| Off-site / second medium copy | weekly                        | per the customer's policy |
 
 Store at least one copy on separate hardware. Encrypt anything leaving the
 server.
@@ -116,6 +120,7 @@ unrecoverable incident.
 ## 4. Restore procedure
 
 ### Full restore onto a clean host
+
 ```bash
 # 1. Install prerequisites and lay down the same version
 cd /opt/content-approval && git clone <url> app && cd app
@@ -148,10 +153,12 @@ curl -fsS https://approval.corp.local/api/ready
 ```
 
 ### Database only (application intact)
+
 Stop `app` and `worker` first so nothing writes during the restore, then run
 steps 4 and 6, then start them again.
 
 ### Files only
+
 Restore the tree, fix ownership, and run the orphan-attachment job in dry-run
 mode from Administration → Background Jobs to see whether any database row lost
 its file.
@@ -181,13 +188,13 @@ admin cleanup.
 
 ## 6. Disaster recovery
 
-| Scenario | Action | Target |
-| --- | --- | --- |
-| Application container corrupted | Redeploy the image; data untouched | RTO < 15 min, RPO 0 |
-| Database corrupted, host alive | Restore last dump (+ WAL if enabled) | RTO < 1 h, RPO ≤ 24 h (or minutes with PITR) |
-| Upload volume lost | Restore from file backup | RTO < 2 h, RPO ≤ 24 h |
-| Whole host lost | Full restore on a new host, §4 | RTO < 4 h, RPO ≤ 24 h |
-| Accidental mass deletion by retention | Restore database to before the run; retention's dry-run default is the primary defence | RPO ≤ 24 h |
+| Scenario                              | Action                                                                                 | Target                                       |
+| ------------------------------------- | -------------------------------------------------------------------------------------- | -------------------------------------------- |
+| Application container corrupted       | Redeploy the image; data untouched                                                     | RTO < 15 min, RPO 0                          |
+| Database corrupted, host alive        | Restore last dump (+ WAL if enabled)                                                   | RTO < 1 h, RPO ≤ 24 h (or minutes with PITR) |
+| Upload volume lost                    | Restore from file backup                                                               | RTO < 2 h, RPO ≤ 24 h                        |
+| Whole host lost                       | Full restore on a new host, §4                                                         | RTO < 4 h, RPO ≤ 24 h                        |
+| Accidental mass deletion by retention | Restore database to before the run; retention's dry-run default is the primary defence | RPO ≤ 24 h                                   |
 
 Agree RTO/RPO with the customer and set the backup frequency to match — the
 table above is a starting point, not a promise made on their behalf.

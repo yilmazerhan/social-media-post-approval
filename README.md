@@ -22,19 +22,19 @@ entirely inside the customer's network — no cloud account required.
 
 ## Documentation
 
-| Document | Contents |
-| --- | --- |
-| [ARCHITECTURE.md](./ARCHITECTURE.md) | System design, modules, layers, decision log |
-| [DATABASE.md](./DATABASE.md) | Entities, enums, indexes, constraints, migrations, seed |
-| [AUTHENTICATION.md](./AUTHENTICATION.md) | Local auth, Entra ID SAML, sessions, RBAC |
-| [API.md](./API.md) | REST surface, envelopes, status and error codes |
-| [UI_UX_SPEC.md](./UI_UX_SPEC.md) | Design system, screens, the two hero screens |
-| [SECURITY.md](./SECURITY.md) | Threat-to-control mapping, headers, upload rules |
-| [CONFIGURATION.md](./CONFIGURATION.md) | Every environment variable and runtime setting |
-| [DEPLOYMENT.md](./DEPLOYMENT.md) | Docker/Podman install, Nginx, TLS, scheduling, upgrades |
-| [BACKUP_RESTORE.md](./BACKUP_RESTORE.md) | Backup, restore, disaster recovery |
-| [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) | Phases, exit criteria, risks |
-| [CLAUDE.md](./CLAUDE.md) | Working agreement for contributors and agents |
+| Document                                           | Contents                                                |
+| -------------------------------------------------- | ------------------------------------------------------- |
+| [ARCHITECTURE.md](./ARCHITECTURE.md)               | System design, modules, layers, decision log            |
+| [DATABASE.md](./DATABASE.md)                       | Entities, enums, indexes, constraints, migrations, seed |
+| [AUTHENTICATION.md](./AUTHENTICATION.md)           | Local auth, Entra ID SAML, sessions, RBAC               |
+| [API.md](./API.md)                                 | REST surface, envelopes, status and error codes         |
+| [UI_UX_SPEC.md](./UI_UX_SPEC.md)                   | Design system, screens, the two hero screens            |
+| [SECURITY.md](./SECURITY.md)                       | Threat-to-control mapping, headers, upload rules        |
+| [CONFIGURATION.md](./CONFIGURATION.md)             | Every environment variable and runtime setting          |
+| [DEPLOYMENT.md](./DEPLOYMENT.md)                   | Docker/Podman install, Nginx, TLS, scheduling, upgrades |
+| [BACKUP_RESTORE.md](./BACKUP_RESTORE.md)           | Backup, restore, disaster recovery                      |
+| [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) | Phases, exit criteria, risks                            |
+| [CLAUDE.md](./CLAUDE.md)                           | Working agreement for contributors and agents           |
 
 ---
 
@@ -53,10 +53,10 @@ database.
 
 ## Prerequisites
 
-| For | Requirement |
-| --- | --- |
-| Development | Node.js 22 LTS, npm 10+, Docker (for PostgreSQL), FFmpeg |
-| Production | Linux (RHEL 8/9, Ubuntu LTS…), Docker 24+/Podman 4.4+, PostgreSQL 16+, Nginx |
+| For         | Requirement                                                                  |
+| ----------- | ---------------------------------------------------------------------------- |
+| Development | Node.js 22 LTS, npm 10+, Docker (for PostgreSQL), FFmpeg                     |
+| Production  | Linux (RHEL 8/9, Ubuntu LTS…), Docker 24+/Podman 4.4+, PostgreSQL 16+, Nginx |
 
 FFmpeg (`ffmpeg` and `ffprobe`) is a server dependency used for video metadata
 and poster frames. It ships inside the container image; for a bare-metal install
@@ -85,24 +85,24 @@ npm run worker                # second terminal: jobs and scheduler
 Seed accounts (development only; the password is printed by the seed script and
 never committed):
 
-| Account | Role |
-| --- | --- |
-| `john.doe@example.local` | EMPLOYEE |
+| Account                      | Role     |
+| ---------------------------- | -------- |
+| `john.doe@example.local`     | EMPLOYEE |
 | `jane.manager@example.local` | APPROVER |
-| `admin@example.local` | ADMIN |
+| `admin@example.local`        | ADMIN    |
 
 ### Scripts
 
-| Command | Purpose |
-| --- | --- |
-| `npm run dev` | development server |
-| `npm run build` / `start` | production build and run |
-| `npm run worker` | background worker + scheduler |
-| `npm run lint` / `typecheck` / `format` | code quality |
-| `npm test` / `test:watch` | Vitest unit + integration |
-| `npm run test:e2e` | Playwright end-to-end |
-| `npm run db:deploy` / `db:migrate` / `db:seed` / `db:bootstrap` | database lifecycle |
-| `npm run job:enqueue -- <TYPE>` | enqueue a job from cron or systemd |
+| Command                                                         | Purpose                            |
+| --------------------------------------------------------------- | ---------------------------------- |
+| `npm run dev`                                                   | development server                 |
+| `npm run build` / `start`                                       | production build and run           |
+| `npm run worker`                                                | background worker + scheduler      |
+| `npm run lint` / `typecheck` / `format`                         | code quality                       |
+| `npm test` / `test:watch`                                       | Vitest unit + integration          |
+| `npm run test:e2e`                                              | Playwright end-to-end              |
+| `npm run db:deploy` / `db:migrate` / `db:seed` / `db:bootstrap` | database lifecycle                 |
+| `npm run job:enqueue -- <TYPE>`                                 | enqueue a job from cron or systemd |
 
 ---
 

@@ -12,7 +12,7 @@ Two authentication methods, one user model, one authorization system.
 2. `LOCAL` and `ENTRA_ID` users are rows in the **same** `User` table. There is
    no parallel user store.
 3. Roles and permissions are always resolved from our database. Group or role
-   claims arriving in a SAML assertion may *map* to internal roles when an
+   claims arriving in a SAML assertion may _map_ to internal roles when an
    administrator configures that mapping — they are never trusted directly.
 4. Sessions are server-side and revocable.
 
@@ -21,15 +21,16 @@ Two authentication methods, one user model, one authorization system.
 ## 2. Local authentication
 
 ### Password storage
+
 Argon2id via `@node-rs/argon2`. Defaults, overridable per environment:
 
-| Parameter | Default | Source |
-| --- | --- | --- |
-| memoryCost | 19 MiB (19456 KiB) | OWASP minimum configuration |
-| timeCost | 2 | OWASP |
-| parallelism | 1 | OWASP |
-| hashLength | 32 bytes | |
-| salt | 16 random bytes, generated per hash | |
+| Parameter   | Default                             | Source                      |
+| ----------- | ----------------------------------- | --------------------------- |
+| memoryCost  | 19 MiB (19456 KiB)                  | OWASP minimum configuration |
+| timeCost    | 2                                   | OWASP                       |
+| parallelism | 1                                   | OWASP                       |
+| hashLength  | 32 bytes                            |                             |
+| salt        | 16 random bytes, generated per hash |                             |
 
 The encoded hash string (algorithm, parameters, salt, digest) is stored in
 `User.passwordHash`. Parameters can be raised later; verification detects an
@@ -39,6 +40,7 @@ Plaintext passwords are never stored, never logged, never included in an audit
 payload, and never returned by any API.
 
 ### Password policy (configurable, enforced server-side)
+
 - Minimum length `PASSWORD_MIN_LENGTH` (default 12).
 - Optional character-class requirements (`PASSWORD_REQUIRE_*`).
 - Rejected if it appears in a bundled local list of common passwords (no online
@@ -53,6 +55,7 @@ The same Zod schema validates the password on the client and the server; the
 server's verdict is the only one that counts.
 
 ### Login flow
+
 1. Rate limit per IP and per email (`LoginAttempt`), sliding window.
 2. Look up the user by lowercased email. **Constant-time behaviour**: an unknown
    email still performs a dummy Argon2 verification so response timing does not
@@ -68,6 +71,7 @@ server's verdict is the only one that counts.
    defence), set `lastLoginAt`, audit `AUTH_LOGIN_SUCCESS`.
 
 ### Password reset
+
 - Request endpoint always answers with the same neutral response regardless of
   whether the email exists.
 - Token: 32 cryptographically random bytes, base64url. Only its SHA-256 is
@@ -79,6 +83,7 @@ server's verdict is the only one that counts.
   never echoed in an API response.
 
 ### Password change (authenticated)
+
 Requires the current password, applies the full policy, revokes every other
 session of that user, and keeps the current one.
 
@@ -89,14 +94,16 @@ session of that user, and keeps the current one.
 Service-provider-initiated SSO. The application is the SP; Entra is the IdP.
 
 ### Endpoints
-| Route | Purpose |
-| --- | --- |
-| `GET /api/v1/auth/saml/login` | Builds the `AuthnRequest`, stores relay state, redirects to the IdP |
-| `POST /api/v1/auth/saml/acs` | Assertion Consumer Service — consumes `SAMLResponse` |
-| `GET /api/v1/auth/saml/metadata` | SP metadata XML for the Entra administrator |
-| `GET|POST /api/v1/auth/saml/logout` | Single logout, when the IdP is configured for it |
+
+| Route                            | Purpose                                                             |
+| -------------------------------- | ------------------------------------------------------------------- |
+| `GET /api/v1/auth/saml/login`    | Builds the `AuthnRequest`, stores relay state, redirects to the IdP |
+| `POST /api/v1/auth/saml/acs`     | Assertion Consumer Service — consumes `SAMLResponse`                |
+| `GET /api/v1/auth/saml/metadata` | SP metadata XML for the Entra administrator                         |
+| `GET                             | POST /api/v1/auth/saml/logout`                                      | Single logout, when the IdP is configured for it |
 
 ### Response validation — all mandatory, all server-side
+
 Handled by `@node-saml/node-saml`, with our own explicit re-assertions on top:
 
 - XML signature valid against the configured IdP certificate; signature covers
@@ -118,15 +125,17 @@ Any failure produces a generic error page, a `security` log entry (without the
 assertion body) and an `AUTH_SAML_REJECTED` audit row with the reason code.
 
 ### Identity mapping
-| Internal field | Source (configurable via `SAML_ATTR_*`) |
-| --- | --- |
-| `externalIdentityId` | `http://schemas.microsoft.com/identity/claims/objectidentifier` — stable, never the email |
-| `email` | `…/claims/emailaddress` or `NameID` |
-| `firstName` / `lastName` / `displayName` | standard claim URIs |
-| `jobTitle`, `department` | optional claims |
-| groups | `http://schemas.microsoft.com/ws/2008/06/identity/claims/groups` |
+
+| Internal field                           | Source (configurable via `SAML_ATTR_*`)                                                   |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `externalIdentityId`                     | `http://schemas.microsoft.com/identity/claims/objectidentifier` — stable, never the email |
+| `email`                                  | `…/claims/emailaddress` or `NameID`                                                       |
+| `firstName` / `lastName` / `displayName` | standard claim URIs                                                                       |
+| `jobTitle`, `department`                 | optional claims                                                                           |
+| groups                                   | `http://schemas.microsoft.com/ws/2008/06/identity/claims/groups`                          |
 
 Matching order on each login:
+
 1. `(authProvider = ENTRA_ID, externalIdentityId)` — the authoritative key.
 2. Else by email: if an existing `ENTRA_ID` user matches, bind the
    `externalIdentityId` and continue. If an existing `LOCAL` user matches,
@@ -165,6 +174,7 @@ password UI to those users.
 - Expired and revoked rows are removed by the `SESSION_CLEANUP` job.
 
 ### CSRF
+
 Double-submit: a `csrfToken` cookie (not `HttpOnly`, per-session, random) plus
 an `X-CSRF-Token` header on every unsafe request, compared in constant time.
 `Origin` (falling back to `Referer`) must match `APP_URL`, and `Sec-Fetch-Site`
@@ -177,6 +187,7 @@ and replay protection.
 ## 5. Authorization (RBAC)
 
 ### Permission catalogue
+
 ```
 POST_CREATE   POST_READ_OWN   POST_READ_ALL   POST_EDIT_OWN   POST_EDIT_ALL
 POST_DELETE_OWN   POST_SUBMIT   POST_APPROVE   POST_REJECT
@@ -189,21 +200,23 @@ RETENTION_MANAGE   SETTINGS_MANAGE   JOB_MANAGE   EMAIL_MANAGE
 
 Default grants:
 
-| Permission group | EMPLOYEE | APPROVER | ADMIN |
-| --- | :--: | :--: | :--: |
-| Own posts (create/read/edit/submit/delete draft/comment) | ✓ | ✓ | ✓ |
-| `POST_READ_ALL`, `APPROVAL_READ`, approve/reject/request changes | | ✓ | ✓ |
-| `APPROVAL_ASSIGN`, `APPROVAL_REASSIGN` | | ✓ | ✓ |
-| `REPORT_READ` | | ✓ | ✓ |
-| Administration (users, roles, groups, departments, settings, retention, jobs, email, audit) | | | ✓ |
+| Permission group                                                                            | EMPLOYEE | APPROVER | ADMIN |
+| ------------------------------------------------------------------------------------------- | :------: | :------: | :---: |
+| Own posts (create/read/edit/submit/delete draft/comment)                                    |    ✓     |    ✓     |   ✓   |
+| `POST_READ_ALL`, `APPROVAL_READ`, approve/reject/request changes                            |          |    ✓     |   ✓   |
+| `APPROVAL_ASSIGN`, `APPROVAL_REASSIGN`                                                      |          |    ✓     |   ✓   |
+| `REPORT_READ`                                                                               |          |    ✓     |   ✓   |
+| Administration (users, roles, groups, departments, settings, retention, jobs, email, audit) |          |          |   ✓   |
 
 ### The decision function
+
 ```ts
-authorization.can(user, 'POST_APPROVE', post) // → boolean
-authorization.assert(user, 'POST_APPROVE', post) // → throws ForbiddenError
+authorization.can(user, "POST_APPROVE", post); // → boolean
+authorization.assert(user, "POST_APPROVE", post); // → throws ForbiddenError
 ```
 
 Two stages:
+
 1. **Grant** — does any of the user's roles hold the permission?
 2. **Policy** — resource-level predicate for permissions that are scoped:
    - `POST_READ_OWN` / `POST_EDIT_OWN` → `post.creatorId === user.id`
@@ -220,6 +233,7 @@ drives UI affordances via a serialised capability set on the page payload — th
 button and the server can never disagree.
 
 ### Enforcement checklist for every protected endpoint
+
 - [ ] session resolved and user active
 - [ ] Zod-validated input
 - [ ] `authorization.assert(...)` with the loaded resource
