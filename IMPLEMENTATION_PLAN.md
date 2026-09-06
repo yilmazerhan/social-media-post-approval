@@ -4,7 +4,7 @@ The build order, what "done" means at each step, and where we currently are.
 The 28 phases from the master specification are grouped into seven milestones so
 progress is reviewable in meaningful chunks rather than one uncontrolled change.
 
-**Current status: Phase 19 complete — proceeding directly to Phase 20 per the user's standing instruction to work through all remaining phases.**
+**Current status: Phase 20 complete — proceeding directly to Phase 21 per the user's standing instruction to work through all remaining phases.**
 
 ---
 
@@ -1425,14 +1425,68 @@ rather than none.
   hand-set by `seed.ts`, independent of this phase's `submitPost` path;
   `lint`, `typecheck`, `format:check` and `build` are clean.
 
-### Phase 20 · Retention
+### Phase 20 · Retention — **complete**
 
-Per-entity policies, dry-run default, `RetentionRun` history, safe transactional
-deletion, orphan attachment and temp file cleanup with the "referenced by any
-version" guard.
-**Exit**: a dry run reports candidates and deletes nothing; a real run deletes
-exactly those candidates; an attachment referenced by any version is never
-removed.
+Built the `retention` module (`runRetentionForTarget`, `runAllRetention`)
+and the `RETENTION_CLEANUP` job the already-seeded `retention-cleanup`
+schedule now actually drives, covering all 8 `RetentionTarget` values.
+Every target's own `RetentionPolicy.dryRun` flag (default `true`,
+CONFIGURATION.md's `RETENTION_DRY_RUN`) decides whether a run only counts
+or actually acts, and one `RetentionRun` row is written either way — so
+nothing gets deleted in a fresh install until an admin explicitly flips a
+policy's dry run off (Phase 21's UI, not built yet).
+
+**The one real design question this phase had to resolve wasn't in any
+single doc paragraph: does "POST retention" hard-delete the row, or
+something safer?** `RetentionRun`'s exit wording ("a real run deletes
+exactly those candidates") and SECURITY.md's line about retention
+"hard-deletes" on `PostVersion`/`ApprovalAction` both read, in isolation,
+like a literal row delete. But `PostVersion`'s own FK from
+`ApprovalAssignment`/`ApprovalAction` is `onDelete: Restrict` — exactly
+enforcing ARCHITECTURE.md §4's "the historical approval row survives and
+still points at the version it approved" — so deleting an old
+version out from under a live approval history would violate a rule this
+project has held since Phase 10. Meanwhile ARCHITECTURE.md's own state
+diagram already names `ARCHIVED` as a real `PostStatus` "reachable from
+any terminal state via retention," with `Post.archivedAt` sitting unused
+in the schema since Phase 3 waiting for exactly this. Given a business
+record with legal/audit significance, the state machine's own explicit
+answer wins over an inference from a security doc's one-line permission
+grant: retention "deletes" a `POST` by transitioning it to `ARCHIVED` and
+setting `archivedAt` — the same case Phase 19 already established (an
+expired SLA changes nothing about a post's status; here, retention
+changes exactly one thing, deliberately, and only forward into a
+terminal-of-terminals state). It isn't logged as an `ApprovalAction` (no
+`ARCHIVE` value exists in `ApprovalActionType`, and there's no human
+decision to log) — a plain `AuditLog` entry, actor `null`, records it
+instead. The other six actual-deletion targets (`NOTIFICATION`,
+`EMAIL_LOG`, `AUDIT_LOG`, `BACKGROUND_JOB`, `SESSION`, `COMMENT`) really
+do delete rows — none of them carries the same historical-integrity
+constraint.
+
+**`ATTACHMENT` reports zero candidates and deletes nothing here — on
+purpose, not as a gap.** Phase 9 already built `ORPHAN_ATTACHMENT_CLEANUP`,
+which already only ever touches `TEMPORARY`-status or explicitly
+soft-deleted attachment rows, never one an un-archived post's current or
+approved version still references. A second job independently deciding
+what counts as "orphaned" would be the one way to actually break "an
+attachment referenced by any version is never removed" — two answers to
+the same question, one of which might be wrong — so this target
+deliberately defers to the job that already exists rather than
+duplicating its judgment.
+
+- **Exit — verified**: `tests/integration/retention.test.ts` proves, for
+  `AUDIT_LOG`: a dry run reports the real candidate count and deletes
+  nothing, and a real run deletes exactly that many rows, leaving a
+  recent row untouched. For `POST`: a dry run leaves an old decided
+  post's status alone; a real run transitions it to `ARCHIVED`, sets
+  `archivedAt`, and writes the `POST_ARCHIVED` audit entry, while a
+  recently-decided post is left `APPROVED`. For `ATTACHMENT`: both a dry
+  run and a real run report zero candidates and delete nothing,
+  confirming the deferral to Phase 9's job holds. 3 new integration tests
+  bring the suite to 298 vitest + 28 Playwright tests, all green across
+  repeated runs; `lint`, `typecheck`, `format:check` and `build` are
+  clean.
 
 ---
 
