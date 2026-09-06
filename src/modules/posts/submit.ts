@@ -6,10 +6,6 @@
  * re-check the readiness checklist against what's actually there, resolve
  * the route, freeze the version, transition the status, create the
  * assignment, and record the action.
- *
- * What this deliberately does not do yet: compute `dueAt`/`warningAt`
- * (Phase 19 owns SLA policy math) or queue an email (Phase 17) — both
- * real gaps, not faked data.
  */
 import type { ApprovalActionType } from "@/generated/prisma/client";
 import { prisma } from "@/server/db";
@@ -24,6 +20,7 @@ import {
   resolveApprovalRoute,
   resolveAssigneeName,
 } from "@/modules/approvals";
+import { resolveSlaPolicy, computeDueDates } from "@/modules/sla";
 import { writeAudit } from "@/modules/audit";
 import { writeNotification, enqueueGroupFanout } from "@/modules/notifications";
 import { attachToVersion } from "@/modules/attachments";
@@ -140,6 +137,12 @@ export async function submitPost(params: {
       attachmentIds,
     });
 
+    const slaPolicy = await resolveSlaPolicy({
+      departmentId: post.departmentId,
+      priority: post.priority,
+    });
+    const dueDates = slaPolicy ? computeDueDates(now, slaPolicy) : null;
+
     await tx.post.update({
       where: { id: post.id },
       data: {
@@ -147,6 +150,12 @@ export async function submitPost(params: {
         title,
         currentVersionId: version.id,
         approvalRouteId: route.rule.id,
+        slaPolicyId: slaPolicy?.id ?? null,
+        // Mirrors ApprovalAssignment.dueAt — the canonical field every
+        // filter/business rule reads — onto Post itself, the same
+        // denormalization seed.ts's own demo fixture already relies on
+        // (DATABASE.md's Post.dueAt index exists for exactly this).
+        dueAt: dueDates?.dueAt ?? null,
         submittedAt: now,
         lockVersion: { increment: 1 },
       },
@@ -161,6 +170,8 @@ export async function submitPost(params: {
         ruleId: route.rule.id,
         status: "PENDING",
         assignedAt: now,
+        dueAt: dueDates?.dueAt ?? null,
+        warningAt: dueDates?.warningAt ?? null,
       },
     });
 

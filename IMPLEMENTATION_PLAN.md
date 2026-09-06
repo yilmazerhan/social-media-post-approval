@@ -4,7 +4,7 @@ The build order, what "done" means at each step, and where we currently are.
 The 28 phases from the master specification are grouped into seven milestones so
 progress is reviewable in meaningful chunks rather than one uncontrolled change.
 
-**Current status: Phase 18 complete — proceeding directly to Phase 19 per the user's standing instruction to work through all remaining phases.**
+**Current status: Phase 19 complete — proceeding directly to Phase 20 per the user's standing instruction to work through all remaining phases.**
 
 ---
 
@@ -1354,12 +1354,76 @@ with HTML still can't inject anything into the digest.
   to 288 vitest + 28 Playwright tests, all green across repeated runs;
   `lint`, `typecheck`, `format:check` and `build` are clean.
 
-### Phase 19 · SLA and escalation
+### Phase 19 · SLA and escalation — **complete**
 
-Policy resolution, due/warning computation, indicators across the UI, the
-`SLA_CHECK` and `SLA_ESCALATE` jobs, escalation targets.
-**Exit**: warning at 75% and overdue at 100% fire once each; **an expired SLA
-never changes a post's status** — asserted by an explicit test.
+Built the `sla` module (`resolveSlaPolicy`, `computeDueDates`) and wired it
+into `submit.ts`, which finally fills in the `dueAt`/`warningAt` every
+prior phase (13, 14, 16, 18) has read but never computed — DATABASE.md
+§5's resolution order (department+priority → priority → global default)
+as three sequential lookups, mirroring `resolveApprovalRoute`'s own
+precedence-matching pattern rather than one `OR` query Prisma can't
+express as ordered fallback.
+
+**Every UI surface that shows SLA state needed zero changes — they were
+already built to read real `dueAt`/`warningAt` and just got fed `null`
+forever.** The review screen's five-second header, the approval queue's
+overdue/due-today/dueSoon filters, and the dashboard's SLA compliance
+card all already query `ApprovalAssignment.dueAt`/`warningAt` directly;
+once `submitPost` starts writing real values there, every one of them
+renders the genuine `SLAIndicator` percent-elapsed bar with no code
+changes. The one column that did need touching by hand was `Post.dueAt` —
+a value denormalized onto the post row itself (its own composite indexes
+exist for it) that only `seed.ts`'s demo fixture had ever populated;
+`submitPost` now mirrors the assignment's `dueAt` onto it the same way.
+
+**"An expired SLA never changes a post's status" is enforced by what
+`SLA_CHECK`/`SLA_ESCALATE` simply never touch, not by a guard clause
+added to stop them.** Neither job writes `Post.status` or
+`ApprovalAssignment.status` anywhere — `SLA_CHECK` (the now-real
+`sla-check` schedule, every 15 minutes) only writes `Notification`/`EmailLog`
+rows and enqueues an `SLA_ESCALATE` job once `escalationAfterMinutes` (measured
+from `assignedAt`, the same time base `durationMinutes` uses) has passed;
+`SLA_ESCALATE` only writes `escalatedAt`/`escalationLevel` and its own
+notification. A repeat "already warned"/"already overdue" check is a
+`Notification` row lookup by `(type, entityType: "ApprovalAssignment", entityId)`
+rather than a new column — no schema change needed since resubmission
+already creates a fresh assignment row, so the check naturally resets per
+version. `escalationLevel > 0` is the "already escalated" guard, reusing
+schema DATABASE.md already named for exactly this rather than inventing a
+parallel marker.
+
+Escalation resolves all three `ApproverTargetType` values `SlaPolicy`
+supports — `USER`, `GROUP`, and `DEPARTMENT_MANAGER` (via
+`Department.managerId`, the same field `resolveApprovalRoute` already
+reads) — the same target-dispatch shape route resolution established, so
+an unconfigured or unresolvable target (no seeded policy sets one) skips
+escalation silently rather than crashing a 15-minute background tick.
+
+**`businessHoursOnly` is real schema and a real, explicitly documented
+gap, not silently wrong.** Computing actual business-hours-aware
+durations needs a calendar of hours and holidays this project has nowhere
+to source yet; every seeded policy defaults it to `false`, so this only
+ever affects a policy an admin explicitly opts into (Phase 21's UI, not
+built yet) — and even then it still gets a real wall-clock deadline
+rather than none.
+
+- **Exit — verified**: `tests/unit/sla-policy.test.ts` proves
+  `computeDueDates`'s formula directly. `tests/integration/sla.test.ts`
+  proves submission resolves the department+priority policy over the
+  priority-only one and sets matching `dueAt`/`warningAt` on both the
+  assignment and `Post`; the priority-only fallback fires when no
+  department-specific policy exists; `SLA_CHECK` fires `SLA_WARNING`
+  exactly once past the warning threshold and `SLA_OVERDUE` exactly once
+  past the due date (a second tick in each case adds nothing) while the
+  post's and assignment's status never change; and escalation fires
+  exactly once to a configured `USER` target past
+  `escalationAfterMinutes`, setting `escalationLevel`/`escalatedAt`, with
+  a second `SLA_CHECK` tick never enqueuing a second `SLA_ESCALATE`. 7 new
+  tests (2 unit + 5 integration) bring the suite to 295 vitest + 28
+  Playwright tests, all green across repeated runs — including the
+  seeded hero fixture's own SLA header, unaffected since its `dueAt` is
+  hand-set by `seed.ts`, independent of this phase's `submitPost` path;
+  `lint`, `typecheck`, `format:check` and `build` are clean.
 
 ### Phase 20 · Retention
 
