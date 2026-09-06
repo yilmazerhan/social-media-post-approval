@@ -23,6 +23,7 @@
     "job:enqueue": "tsx src/jobs/enqueue-cli.ts",
     "backup": "bash scripts/backup.sh",
     "restore:drill": "bash scripts/restore-drill.sh",
+    "security-review": "bash scripts/security-review.sh",
     "pretest": "dotenv -e .env.test -e .env -- prisma migrate deploy"
   },
   "dependencies": {

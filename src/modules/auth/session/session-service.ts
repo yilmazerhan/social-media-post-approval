@@ -21,6 +21,7 @@ export type RevokedReason =
   | "ADMIN"
   | "USER_DISABLED"
   | "PASSWORD_CHANGED"
+  | "ROLE_CHANGED"
   | "EXPIRED";
 
 const LAST_SEEN_UPDATE_THROTTLE_MS = 60_000;

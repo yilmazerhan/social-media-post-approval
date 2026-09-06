@@ -4,7 +4,7 @@ The build order, what "done" means at each step, and where we currently are.
 The 28 phases from the master specification are grouped into seven milestones so
 progress is reviewable in meaningful chunks rather than one uncontrolled change.
 
-**Current status: Phase 24 complete — proceeding directly to Phase 25 per the user's standing instruction to work through all remaining phases.**
+**Current status: Phase 25 complete — proceeding directly to Phase 26 per the user's standing instruction to work through all remaining phases.**
 
 ---
 
@@ -1788,12 +1788,126 @@ repository at all.
   clean; the full suite is 46 vitest files / 332 tests, green across two
   repeated runs; `build` succeeds.
 
-### Phase 25 · Security hardening
+### Phase 25 · Security hardening — **complete**
 
-Headers and CSP with nonces, rate limiting, secret-leak review, dependency
-audit, container hardening (non-root, pinned digests, read-only root),
-`npm run security-review` against the threat table in `SECURITY.md`.
-**Exit**: every row of that table has a passing test or a recorded justification.
+`src/middleware.ts` is the headline deliverable: every response now carries
+SECURITY.md §3's full header set (HSTS, `X-Content-Type-Options`,
+`Referrer-Policy`, `X-Frame-Options`, `Permissions-Policy`, both
+Cross-Origin-* headers) plus a real per-request-nonce CSP — no `nonce`
+existed anywhere before this phase. Runs on the edge runtime deliberately
+(not Node middleware) so it stays independent of `@/server/config`'s
+`_FILE`-secret-reading `node:fs` usage; `APP_URL`/`AUTH_SAML_ENABLED`/
+`SAML_IDP_SSO_URL` are read straight from `process.env` instead, none of
+them credential material. Verified for real, not just unit-tested: curl
+against a live `next dev` instance confirmed every header and a nonce that
+matches between the CSP header and Next's own injected `<script nonce="...">`
+tags; the full editor e2e suite (autosave, image upload, mobile sticky bar),
+the dashboard suite, and the admin suite all pass under real CSP enforcement
+in a real Chromium browser — proof `unsafe-inline`/`unsafe-eval` were never
+actually needed. `tests/unit/middleware.test.ts` covers the header set, a
+fresh nonce per call, and the SAML-enabled `form-action` branch.
+
+**The database two-role model (SECURITY.md §6) was built and manually
+verified**, closing a gap the Phase 20/23 migration comments had explicitly
+deferred to this phase: `scripts/db-roles.sql` creates an `app` role (full
+CRUD on ordinary tables, but no `UPDATE`/`DELETE` grant on `AuditLog` at
+all, and no `UPDATE` on `PostVersion`/`ApprovalAction`) and a `migrator`
+role (schema owner, the one role that can still touch `AuditLog`). Run for
+real against a scratch database (`ca_grant_drill`, migrated then dropped
+after): connecting as `app` and attempting `UPDATE`/`DELETE` on `AuditLog`
+returned `permission denied for table AuditLog`, full CRUD on an ordinary
+table (`Department`) succeeded, and `UPDATE` on `PostVersion` was likewise
+denied — exactly SECURITY.md §6's contract, at the database level, not just
+in application code. One real bug surfaced and fixed along the way: the
+script's own placeholder `\set app_password 'changeme-app'` line silently
+overrode whatever `-v app_password=...` was passed on the command line
+(psql's later `\set` always wins), so every "custom password" attempt
+silently became `changeme-app` instead — removed entirely; the script now
+requires `-v` and errors on a missing variable rather than falling back to
+anything written in the file. DEPLOYMENT.md documents the (optional —
+SECURITY.md accepts a single-role deployment as the lower-assurance
+fallback) provisioning step.
+
+**A full sweep of SECURITY.md §2's 22-row threat table** against this
+codebase's actual test suite (24 prior phases, each already built with
+security as a first-class concern) found the overwhelming majority already
+correctly controlled and tested: SQL injection (Prisma throughout, no raw
+string concatenation anywhere), XSS stored/reflected (server-side Tiptap
+sanitization, now CSP on top), CSRF, session theft, brute
+force/lockout, account enumeration (`local-auth.test.ts`'s identical-shape
+assertions), IDOR (`protectedHandler`'s `loadResource` returns 404 before
+any 403 decision — structural, not per-route), privilege escalation
+(Phase 5's full permission × role matrix), unauthorized/stale/duplicate
+approval, insecure upload, path traversal, unauthorized file access,
+malicious file execution, SSRF (no user-supplied-URL fetch exists anywhere
+in this codebase), open redirect (SAML `RelayState` allowlist), CSV
+injection, and secret leakage (Pino's redaction list, confirmed no
+`writeAudit()` call site anywhere passes a password/token/cookie/assertion
+into `metadata`) all check out. Two real gaps were found and fixed, not just
+noted:
+
+1. **Session fixation's "privilege change" half was dead code.**
+   `SESSION_REVOKE_ON_ROLE_CHANGE` existed as a config flag since Phase 4
+   but nothing ever read it — `assignRole`/`removeRole`
+   (`administration/users.ts`) changed a user's roles without ever
+   considering it. Fixed: both now revoke every active session for that
+   user (new `ROLE_CHANGED` reason) when the flag is set, tested both ways
+   (revokes when set, leaves sessions alone when unset — the default).
+2. **`SLA_ESCALATE`'s missing audit entry** — already found and fixed in
+   Phase 23 (`ASSIGNMENT_ESCALATED`), listed here again only because it's
+   also this table's "Insider tampering" / audit-completeness territory.
+
+Two items are recorded justifications rather than passing tests, per the
+exit criterion's own allowance:
+
+- **Dependency risk** — `npm audit --omit=dev` reports three advisories
+  (`deepmerge-ts`, `mysql2` via the `prisma` CLI; `postcss` via `next`'s own
+  build pipeline), all in build-time-only tooling this application's
+  runtime never executes against untrusted input (confirmed: neither
+  `mysql2` nor `postcss` is imported by any application code). Documented
+  in SECURITY.md's new "Known dependency exceptions" table; fixing any of
+  the three needs a breaking `next`/`prisma` version change unjustified by
+  an unreachable advisory.
+- **Denial of service's "load smoke test"** — every individual control it
+  names (rate limits, lockout, upload/pagination caps, `DATABASE_STATEMENT_TIMEOUT_MS`,
+  job `maxAttempts`) is already control-tested; no concurrent-load tool
+  (k6/autocannon) exists in this repository, and building one is out of
+  proportion for this phase. Left as a real, named gap for Phase 26.
+- **Container hardening** — DEPLOYMENT.md §3 already specifies the exact
+  Dockerfile (pinned `node:22-bookworm-slim` digest, non-root uid 10001,
+  multi-stage, `HEALTHCHECK` against `/api/health`) and SECURITY.md §8
+  states its constraints; building the actual image is Phase 27's own job
+  — its `HEALTHCHECK` needs a working `/api/health` route, which is also
+  explicitly Phase 27's (per `src/server/health.ts`'s own existing
+  comment). Building a Dockerfile with a healthcheck against a
+  not-yet-existing endpoint would be backwards, not hardening.
+
+`npm run security-review` (`scripts/security-review.sh`) makes the
+mechanical parts of this sweep repeatable: `.env` never tracked, `npm
+audit` findings trace back only to the three documented root causes (by
+walking each advisory's `via` chain, not a flat name match — survives the
+dependency graph reshuffling under an unrelated package bump),
+`dangerouslySetInnerHTML` stays confined to exactly the four reviewed call
+sites, no hardcoded external script/style/font source. All four checks
+pass today.
+
+One pre-existing, unrelated issue surfaced and cleaned up along the way
+(not a regression from this phase): `tests/e2e/admin.spec.ts`'s
+role-creation test never deletes the role it creates, and after enough
+repeated runs against the shared dev database the accumulated rows pushed
+new ones past the admin Roles table's first page, breaking its own
+visibility assertion. Deleted the 12 accumulated `E2E_TEST_ROLE_*` rows to
+restore a clean state; the test itself needs an `afterAll` cleanup, flagged
+for Phase 26 rather than fixed here (out of scope for a security phase, and
+not something introduced by this phase's changes).
+
+- **Exit — verified**: `tests/unit/middleware.test.ts` (3 tests) plus two
+  new session-revocation tests in `administration.test.ts`. The suite is
+  now 47 vitest files / 337 tests, green across two repeated runs; `lint`,
+  `typecheck`, `format:check`, and `build` are clean; `npm run
+security-review` passes; representative e2e suites (dashboard, editor,
+  admin) pass under real CSP enforcement in Chromium; the DB two-role model
+  was manually verified end-to-end against a real scratch database.
 
 ### Phase 26 · Testing
 

@@ -113,6 +113,24 @@ password that must satisfy the password policy, and it refuses to run twice.
 Demo/seed content (`npm run db:seed`) is a development-only command and is
 blocked when `NODE_ENV=production`.
 
+### Optional: two-role database (SECURITY.md §6)
+
+For the append-only `AuditLog` guarantee to hold at the database level (not
+just in application code), run `scripts/db-roles.sql` once, after step 6
+above, as a Postgres superuser:
+
+```bash
+docker compose exec -T postgres psql -U postgres -d content_approval \
+  -v app_password=<generated> -v migrator_password=<generated> \
+  -f - < scripts/db-roles.sql
+```
+
+Then point `DATABASE_URL` at the `app` role and re-run `docker compose up -d
+app worker`. Both passwords must be passed with `-v` on the command line —
+never edit them into the script file itself. A single-role deployment (skip
+this step; `DATABASE_URL` stays pointed at the schema-owning role) still
+works — SECURITY.md documents it as the accepted, lower-assurance fallback.
+
 ### Air-gapped install
 
 Build the image on a connected workstation, then transfer it:

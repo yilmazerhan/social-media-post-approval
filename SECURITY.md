@@ -160,8 +160,35 @@ files are the operational record; the audit table is the authoritative one.
   unavoidable advisories.
 - Container images: pinned digests, multi-stage build, non-root user, no shell
   utilities beyond what runtime needs, read-only root filesystem where possible.
+  The Dockerfile implementing this is Phase 27's own deliverable (DEPLOYMENT.md
+  §3 already specifies it exactly: `node:22-bookworm-slim` runner, non-root
+  `app` uid 10001, `HEALTHCHECK` against `/api/health` — itself a Phase 27
+  route); Phase 25 verifies the specification is complete and correct rather
+  than building the image before there's a working health endpoint for its
+  `HEALTHCHECK` to call.
 - A security review is a named phase (Phase 25) with its own checklist, not an
-  afterthought.
+  afterthought — `npm run security-review` (`scripts/security-review.sh`)
+  runs it locally: `npm audit --omit=dev` against the exceptions below, a
+  grep sweep for the two `dangerouslySetInnerHTML` call sites this codebase
+  allows, and a reminder of where each threat-table row's test lives.
+
+### Known dependency exceptions
+
+`npm audit --omit=dev` currently reports three advisories, all in
+build-time-only tooling this application's runtime never executes against
+untrusted input:
+
+| Package        | Pulled in by                                            | Why it doesn't apply here                                                                                                                                                                                          |
+| -------------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `deepmerge-ts` | `prisma` CLI → `@prisma/config`                         | A stack-exhaustion bug merging deeply recursive objects; only reachable via `prisma`'s own config-merging at CLI/build time, never at request time. `prisma` is a devDependency.                                   |
+| `mysql2`       | `prisma` CLI (bundles every driver it can generate for) | This application only ever configures a PostgreSQL datasource; `mysql2` is never imported by application code (confirmed by grep) and its credential/DoS advisories require the MySQL protocol path to run at all. |
+| `postcss`      | `next` (Tailwind's build pipeline)                      | The advisories require processing attacker-controlled CSS/source-map comments; PostCSS here only ever compiles this repository's own trusted source files at build time, never runtime, user-supplied CSS.         |
+
+Fixing any of the three requires a breaking major-version change (`prisma`
+downgrading to a `6.x` line, or `next` upgrading to `16.x`) neither justified
+by an unreachable advisory. Re-run `npm audit --omit=dev` after any future
+`next`/`prisma` upgrade and re-evaluate this table rather than assuming it
+still holds.
 
 ---
 

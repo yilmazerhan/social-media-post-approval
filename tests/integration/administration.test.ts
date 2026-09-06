@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, describe, expect, it } from "vitest";
 import { prisma } from "@/server/db";
+import { config } from "@/server/config";
 import {
   ProviderMismatchError,
   PasswordPolicyError,
@@ -152,6 +153,54 @@ describe("Users", () => {
 
     const removed = await removeRole(target.id, "APPROVER", actor.id);
     expect(removed.roleKeys).not.toContain("APPROVER");
+  });
+
+  it("revokes active sessions on a role change when SESSION_REVOKE_ON_ROLE_CHANGE is set — SECURITY.md's session-fixation control", async () => {
+    const actor = await createActor("Admin Actor Role Revoke");
+    const target = await createActor("Role Revoke Target");
+    const session = await prisma.session.create({
+      data: {
+        userId: target.id,
+        tokenHash: hashSecret(generateSessionSecret()),
+        authProvider: "LOCAL",
+        expiresAt: new Date(Date.now() + 60 * 60_000),
+      },
+    });
+
+    const original = config.SESSION_REVOKE_ON_ROLE_CHANGE;
+    config.SESSION_REVOKE_ON_ROLE_CHANGE = true;
+    try {
+      await assignRole(target.id, "APPROVER", actor.id);
+    } finally {
+      config.SESSION_REVOKE_ON_ROLE_CHANGE = original;
+    }
+
+    const revoked = await prisma.session.findUniqueOrThrow({
+      where: { id: session.id },
+    });
+    expect(revoked.revokedAt).not.toBeNull();
+    expect(revoked.revokedReason).toBe("ROLE_CHANGED");
+  });
+
+  it("leaves sessions alone on a role change when SESSION_REVOKE_ON_ROLE_CHANGE is unset (the default)", async () => {
+    const actor = await createActor("Admin Actor Role No-Revoke");
+    const target = await createActor("Role No-Revoke Target");
+    const session = await prisma.session.create({
+      data: {
+        userId: target.id,
+        tokenHash: hashSecret(generateSessionSecret()),
+        authProvider: "LOCAL",
+        expiresAt: new Date(Date.now() + 60 * 60_000),
+      },
+    });
+
+    expect(config.SESSION_REVOKE_ON_ROLE_CHANGE).toBe(false);
+    await assignRole(target.id, "APPROVER", actor.id);
+
+    const stillActive = await prisma.session.findUniqueOrThrow({
+      where: { id: session.id },
+    });
+    expect(stillActive.revokedAt).toBeNull();
   });
 
   it("resets a LOCAL user's password directly, forces a change, and revokes sessions", async () => {

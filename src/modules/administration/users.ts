@@ -274,6 +274,9 @@ export async function assignRole(
       tx,
     );
   });
+  if (config.SESSION_REVOKE_ON_ROLE_CHANGE) {
+    await revokeAllUserSessions(userId, "ROLE_CHANGED");
+  }
   return getUserDetail(userId);
 }
 
@@ -298,6 +301,9 @@ export async function removeRole(
       tx,
     );
   });
+  if (config.SESSION_REVOKE_ON_ROLE_CHANGE) {
+    await revokeAllUserSessions(userId, "ROLE_CHANGED");
+  }
   return getUserDetail(userId);
 }
 
