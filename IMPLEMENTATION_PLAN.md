@@ -4,7 +4,7 @@ The build order, what "done" means at each step, and where we currently are.
 The 28 phases from the master specification are grouped into seven milestones so
 progress is reviewable in meaningful chunks rather than one uncontrolled change.
 
-**Current status: Phase 20 complete — proceeding directly to Phase 21 per the user's standing instruction to work through all remaining phases.**
+**Current status: Phase 21 complete — proceeding directly to Phase 22 per the user's standing instruction to work through all remaining phases.**
 
 ---
 
@@ -1488,16 +1488,111 @@ duplicating its judgment.
   repeated runs; `lint`, `typecheck`, `format:check` and `build` are
   clean.
 
+**Correction (made during Phase 21): `POST` retention is actually
+two-stage, not archive-only.** Re-reading DATABASE.md §8's own
+referential-integrity table while building Phase 21 surfaced a second,
+equally explicit line this retrospective's first pass had missed:
+"PostVersion → Post: CASCADE (retention deletes the post)" — a literal
+row delete, not a status transition. Both documented facts are true at
+once, just about two different ages of the same post: **Stage 1**
+(described above, unchanged) archives a decided post once `retentionDays`
+has passed since `decidedAt`. **Stage 2** — new — hard-deletes a post
+that has itself been sitting `ARCHIVED` for a further, _same_
+`retentionDays` window (measured from `archivedAt`), via
+`prisma.post.delete()`; the schema's own cascade chain
+(`PostVersion`, `ApprovalAssignment`, `ApprovalAction`, `Comment`, ...)
+removes everything under it. A `POST_DELETED` audit entry is written
+_before_ the delete, since `AuditLog.postId` is deliberately not a Prisma
+relation ("audit history must survive post deletion") and is left
+dangling on purpose rather than nulled or cascaded. `ATTACHMENT` stays a
+no-op for the same reason as before. `RetentionRun.details` now records
+`{toArchive, toDelete}` on a dry run and `{archived, deleted}` on a real
+one, for either stage. A fourth `tests/integration/retention.test.ts`
+case proves the stage-2 path: an already-archived post past the second
+window is genuinely gone (its `PostVersion` cascades with it), a
+still-fresh archived post is untouched, and the `POST_DELETED` audit
+entry survives with its now-dangling `postId` intact.
+
 ---
 
 ## Milestone 5 — Administration and insight (Phases 21–23)
 
-### Phase 21 · Administration
+### Phase 21 · Administration — **complete**
 
-All fourteen sections from `UI_UX_SPEC.md` §6, including user enable/disable
-with session revocation, role assignment, and LOCAL-only password management.
-**Exit**: an administrator can run the system without touching the database;
-Entra users show no password affordance anywhere.
+All fourteen `UI_UX_SPEC.md` §6 sections got a real service layer, a full API
+route, and a screen: Users, Roles, Groups, Departments, Approval rules,
+Workflow, SLA policies, Email configuration, Email templates, Notifications,
+Retention, Background jobs, Audit logs, System settings. The admin screen
+itself replaced the `ComingSoon` placeholder at `/admin` with a
+permission-driven tab shell (`AdminShell`) — each of the fourteen tabs only
+renders when the signed-in user's server-computed grant set actually holds the
+permission it needs, and the route itself is gated server-side in
+`admin/page.tsx` (`notFound()` for anyone holding none of the
+`administration`-category permissions) rather than relying on the sidebar
+merely hiding the nav link — closing a real gap CLAUDE.md's hard constraint #6
+calls out directly ("hiding a button is not a security control").
+
+**Users** are admin-created as `LOCAL`/`PENDING` with a queued `password_reset`
+email (no new "welcome" template invented); an Entra (`ENTRA_ID`) user shows no
+password affordance anywhere in the screen, and an admin-triggered reset against
+one throws `ProviderMismatchError`. Disabling a user revokes every active
+session immediately (`revokeAllUserSessions`), proved end-to-end in
+`tests/e2e/admin.spec.ts`: a freshly reset user actually signs in in a second
+browser context, gets disabled by the admin, and its next request is redirected
+to `/login`. Two new generic error classes
+(`ProviderMismatchError`, `PasswordPolicyError`) were added to
+`server/http/handler.ts` itself — not imported from `auth/local`'s
+module-specific ones — so the central catch-block mapping there never needs to
+import from a feature module, preserving its existing zero-module-import
+layering.
+
+**Deliberate scoping calls, made explicit rather than silently absorbed:**
+Email configuration stays **read-only** — SMTP host/port/credentials are
+env-only per CLAUDE.md/SECURITY.md, so there is no `PATCH`, only a status
+card and a test-send form. Approval rules and SLA policies continue reusing
+`SETTINGS_MANAGE` (no dedicated permission key exists for either, matching the
+precedent the Phase 12 `approval-rules/preview` route already set). Audit logs
+here are a plain, filterable, **read-only** list only — no edit or delete
+affordance anywhere, and filters/CSV export stay Phase 23's. System settings
+got a working CRUD screen, but the `SystemSetting` table itself remains
+unpopulated and unread by any other module — a real, pre-existing gap
+(ARCHITECTURE.md's "operational settings without a restart" promise is already
+satisfied by SLA/retention/email-template's own dedicated, live-read tables;
+`SystemSetting` is additional surface, not yet wired to anything). Workflow is
+a plain read-only render of `state-machine.ts`'s own legal-transition table
+(a new `listTransitions()` accessor, never a second copy of it). Notifications
+(admin) is a minimal read-only volume-by-type summary over the existing
+`Notification` table — no global notification settings exist anywhere in the
+spec to manage.
+
+**A real bug the UI work surfaced in already-shipped Phase 21 backend code,
+fixed here:** `listAuditLogs`, `listRetentionRuns`, and `listEmailLogs` all
+returned raw Prisma rows carrying a native `BigInt` id (`AuditLog.id`,
+`RetentionRun.id`/`freedBytes`, `EmailLog.id`/`jobId`) — `JSON.stringify`
+cannot serialize a `BigInt`, so every one of their routes would have thrown a
+500 the first time any of those tables actually had rows, the moment a real
+client (this new UI) called them. Every existing test for these three
+functions had called the module function directly rather than through the
+HTTP route, so the crash was never exercised. Fixed the same way
+`jobs.ts`'s `serializeJob` already handled `BackgroundJob.id`: each function
+now maps its rows through a small serializer that carries the `BigInt`
+field(s) as strings. Three new regression tests assert
+`JSON.stringify(row)` doesn't throw and that the id comes back as a
+`string`, so this can't silently regress.
+
+**Exit — verified**: `tests/integration/administration.test.ts` (10 tests)
+and `administration-2.test.ts` (12 tests, including the three
+BigInt-serialization regressions above) cover every section's service layer.
+`tests/e2e/admin.spec.ts` proves the exit criterion through the real screen
+twice over: disabling a user revokes its live session (redirected to
+`/login` on its very next request), and creating a role, editing its
+permission grants, and reloading the page proves the grant was actually
+persisted server-side rather than held only in local state. The suite is now
+44 vitest files / 319 tests and 10 Playwright spec files / 30 tests (up from
+298/28), all green across two repeated runs; `lint`, `typecheck`,
+`format:check` and `build` are clean. Two `Switch`/`Checkbox` Radix
+primitives were added (`components/ui/`) — the codebase's first
+boolean-toggle and permission-grid form fields.
 
 ### Phase 22 · Reporting
 

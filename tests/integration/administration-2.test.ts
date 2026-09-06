@@ -14,6 +14,7 @@ import {
   listEmailTemplates,
   updateEmailTemplate,
   previewEmailTemplate,
+  listEmailLogs,
   listRetentionPolicies,
   updateRetentionPolicy,
   listRetentionRuns,
@@ -183,6 +184,25 @@ describe("Email administration", () => {
     });
     expect(preview.body).toContain("https://example.test/reset");
   });
+
+  it("returns log rows with a stringified id/jobId, so a route handler's JSON.stringify never throws on a BigInt", async () => {
+    const job = await prisma.backgroundJob.create({
+      data: { type: "EMAIL_SEND", payload: {} },
+    });
+    createdJobIds.push(job.id);
+    await prisma.emailLog.create({
+      data: {
+        templateKey: "password_reset",
+        toAddress: "bigint-regression@editortest.local",
+        subject: "Test",
+        jobId: job.id,
+      },
+    });
+    const logs = await listEmailLogs(1, 1);
+    expect(typeof logs.items[0].id).toBe("string");
+    expect(typeof logs.items[0].jobId).toBe("string");
+    expect(() => JSON.stringify(logs.items[0])).not.toThrow();
+  });
 });
 
 describe("Retention administration", () => {
@@ -202,6 +222,22 @@ describe("Retention administration", () => {
 
     const runs = await listRetentionRuns(1, 10);
     expect(Array.isArray(runs.items)).toBe(true);
+  });
+
+  it("returns run rows with a stringified id, so a route handler's JSON.stringify never throws on a BigInt", async () => {
+    await prisma.retentionRun.create({
+      data: {
+        target: "SESSION",
+        dryRun: true,
+        startedAt: new Date(),
+        finishedAt: new Date(),
+        candidateCount: 0,
+        deletedCount: 0,
+      },
+    });
+    const runs = await listRetentionRuns(1, 1);
+    expect(typeof runs.items[0].id).toBe("string");
+    expect(() => JSON.stringify(runs.items[0])).not.toThrow();
   });
 });
 
@@ -270,6 +306,8 @@ describe("Audit logs", () => {
     expect(result.items.every((l) => l.action === "SLA_POLICY_CREATED")).toBe(
       true,
     );
+    expect(typeof result.items[0].id).toBe("string");
+    expect(() => JSON.stringify(result.items[0])).not.toThrow();
   });
 });
 

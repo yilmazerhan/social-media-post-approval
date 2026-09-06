@@ -14,6 +14,10 @@ const deleteByTitleEntry = path.resolve(
   __dirname,
   "../../../prisma/delete-post-by-title.ts",
 );
+const deleteUserByEmailEntry = path.resolve(
+  __dirname,
+  "../../../prisma/delete-user-by-email.ts",
+);
 
 export function deletePostByTitle(title: string): void {
   const result = spawnSync(tsxBin, [deleteByTitleEntry, title], {
@@ -23,5 +27,17 @@ export function deletePostByTitle(title: string): void {
   });
   if (result.status !== 0) {
     throw new Error(`delete-post-by-title failed: ${result.stderr}`);
+  }
+}
+
+/** Used by tests/e2e/admin.spec.ts — see prisma/delete-user-by-email.ts. */
+export function deleteUserByEmail(email: string): void {
+  const result = spawnSync(tsxBin, [deleteUserByEmailEntry, email], {
+    env: process.env,
+    encoding: "utf8",
+    timeout: 30_000,
+  });
+  if (result.status !== 0) {
+    throw new Error(`delete-user-by-email failed: ${result.stderr}`);
   }
 }

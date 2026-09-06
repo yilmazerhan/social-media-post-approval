@@ -5,6 +5,7 @@
  * holds only `INSERT, SELECT`), and Phase 23 owns filters/CSV export in
  * full; this is the plain list this phase's admin nav needs to link to.
  */
+import type { AuditLog } from "@/generated/prisma/client";
 import { prisma } from "@/server/db";
 
 export interface ListAuditLogsFilters {
@@ -13,6 +14,11 @@ export interface ListAuditLogsFilters {
   actorId?: string;
   page: number;
   pageSize: number;
+}
+
+/** `AuditLog.id` is a Prisma `BigInt`, which `JSON.stringify` can't serialize — carried as a string instead. */
+function serializeAuditLog(log: AuditLog) {
+  return { ...log, id: log.id.toString() };
 }
 
 export async function listAuditLogs(filters: ListAuditLogsFilters) {
@@ -30,5 +36,5 @@ export async function listAuditLogs(filters: ListAuditLogsFilters) {
     }),
     prisma.auditLog.count({ where }),
   ]);
-  return { items, total };
+  return { items: items.map(serializeAuditLog), total };
 }

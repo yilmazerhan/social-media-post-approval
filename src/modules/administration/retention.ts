@@ -5,12 +5,21 @@
  * exposes run history — the actual counting/deleting logic isn't
  * duplicated here.
  */
-import type { RetentionTarget } from "@/generated/prisma/client";
+import type { RetentionRun, RetentionTarget } from "@/generated/prisma/client";
 import { prisma } from "@/server/db";
 import { NotFoundError } from "@/server/http/handler";
 import { writeAudit } from "@/modules/audit";
 import { runRetentionForTarget } from "@/modules/retention";
 import type { RetentionPolicyInput } from "./validation";
+
+/** `RetentionRun.id`/`freedBytes` are Prisma `BigInt`s, which `JSON.stringify` can't serialize — carried as strings instead. */
+function serializeRetentionRun(run: RetentionRun) {
+  return {
+    ...run,
+    id: run.id.toString(),
+    freedBytes: run.freedBytes === null ? null : run.freedBytes.toString(),
+  };
+}
 
 export async function listRetentionPolicies() {
   return prisma.retentionPolicy.findMany({ orderBy: { target: "asc" } });
@@ -58,5 +67,5 @@ export async function listRetentionRuns(page: number, pageSize: number) {
     }),
     prisma.retentionRun.count(),
   ]);
-  return { items, total };
+  return { items: items.map(serializeRetentionRun), total };
 }

@@ -6,12 +6,22 @@
  * the currently effective, non-secret values, and edits the 8 seeded
  * `EmailTemplate` rows.
  */
+import type { EmailLog } from "@/generated/prisma/client";
 import { prisma } from "@/server/db";
 import { config } from "@/server/config";
 import { NotFoundError } from "@/server/http/handler";
 import { writeAudit } from "@/modules/audit";
 import { renderTemplate } from "@/modules/email";
 import type { EmailTemplateInput } from "./validation";
+
+/** `EmailLog.id`/`jobId` are Prisma `BigInt`s, which `JSON.stringify` can't serialize — carried as strings instead. */
+function serializeEmailLog(log: EmailLog) {
+  return {
+    ...log,
+    id: log.id.toString(),
+    jobId: log.jobId === null ? null : log.jobId.toString(),
+  };
+}
 
 export interface EmailSettingsDto {
   enabled: boolean;
@@ -89,5 +99,5 @@ export async function listEmailLogs(page: number, pageSize: number) {
     }),
     prisma.emailLog.count(),
   ]);
-  return { items, total };
+  return { items: items.map(serializeEmailLog), total };
 }
