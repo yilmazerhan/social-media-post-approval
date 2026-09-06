@@ -72,6 +72,24 @@ non-container install it must be present on the host (`dnf install ffmpeg` /
 
 ## 4. Install with Docker Compose
 
+**Quick path (Ubuntu 22.04/24.04):** `scripts/install.sh` automates steps 1-6
+below — Docker Engine + Compose plugin, cloning the repo, generating `.env`
+(session secret, database password) and a placeholder TLS certificate, the
+uploads volume, `docker compose up -d`, and the migrate/bootstrap step. Run it
+as root on the target host:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/yilmazerhan/social-media-post-approval/main/scripts/install.sh | sudo bash
+```
+
+Or, having already cloned the repo: `sudo bash scripts/install.sh`. See the
+script's own header comment for its environment variables (`APP_DOMAIN`,
+`CERT_FILE`/`KEY_FILE` for a real certificate, etc.). It still leaves the
+manual steps below — a real certificate, SMTP/SAML configuration, backups —
+for you to finish per §11's checklist. The rest of this section is the fully
+manual walkthrough it automates, useful for understanding what it does or for
+a host it doesn't fit (a different distro, an air-gapped install below).
+
 ```bash
 # 1. Get the code onto the server (git clone, or a transferred archive)
 sudo mkdir -p /opt/content-approval && cd /opt/content-approval
@@ -284,6 +302,12 @@ Administration → System Health surfaces the same probes plus queue depth,
 failed job count and email delivery state.
 
 ### Upgrade
+
+**Quick path:** `scripts/update.sh [branch-or-tag]` automates the steps below —
+it refuses to run with uncommitted local changes, dumps the database first,
+moves to the requested ref (or fast-forwards the current branch if none is
+given), rebuilds, restarts `app`/`worker` only, and verifies `/api/ready`,
+printing rollback instructions if it doesn't come back healthy.
 
 ```bash
 cd /opt/content-approval/app
