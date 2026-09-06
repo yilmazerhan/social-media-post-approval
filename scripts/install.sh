@@ -159,6 +159,10 @@ else
     -addext "subjectAltName=DNS:${APP_DOMAIN}" 2>/dev/null
   chmod 600 certs/server.key
 fi
+# uid 10001 is the `app` container's non-root user (Dockerfile) — it
+# needs to write here itself when a new certificate is uploaded from
+# Administration -> TLS Certificate (DEPLOYMENT.md §6).
+chown -R 10001:10001 certs
 
 # ---- 6. Storage volume ----------------------------------------------------
 log "Preparing the uploads volume..."
@@ -207,7 +211,9 @@ cat <<EOF
   Certs:      $APP_DIR/certs/
 
 Before going live, work through DEPLOYMENT.md §11's checklist, in particular:
-  - Replace the placeholder TLS certificate with a customer-issued one.
+  - Replace the placeholder TLS certificate: either now (rerun with CERT_FILE/
+    KEY_FILE set), or later as an admin, from Administration -> TLS Certificate
+    (upload a .jks keystore — nginx picks it up within ~10s, no restart needed).
   - Edit .env: SMTP_*, and AUTH_SAML_*/SAML_* if SSO is in scope.
   - Schedule backups (scripts/backup.sh, BACKUP_RESTORE.md) and test a restore.
   - Configure log rotation for the containers' JSON stdout logs.

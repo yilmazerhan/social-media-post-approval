@@ -203,6 +203,10 @@ const envSchema = z
     // ---- 6. Storage and media -------------------------------------------
     STORAGE_PATH: z.string().default("/opt/content-approval/data/uploads"),
     STORAGE_TMP_PATH: z.string().optional(),
+    // Where nginx also reads server.crt/server.key from (DEPLOYMENT.md §6)
+    // — the shared volume a certificate uploaded from Administration ->
+    // TLS Certificate is written into.
+    TLS_CERT_DIR: z.string().default("/opt/content-approval/certs"),
     MAX_UPLOAD_SIZE: zInt(104_857_600, { min: 1 }),
     MAX_IMAGE_SIZE: zInt(10_485_760, { min: 1 }),
     MAX_ATTACHMENTS_PER_POST: zInt(10, { min: 1 }),

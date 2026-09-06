@@ -190,17 +190,18 @@ caller may mention.
 
 ### Administration — `/api/v1/admin`
 
-| Area           | Endpoints                                                                                                                                     |
-| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| Roles          | `GET/POST /roles`, `PATCH /roles/:id`, `GET /permissions`                                                                                     |
-| Approval rules | `GET/POST /approval-rules`, `PATCH`/`DELETE /:id`, `POST /approval-rules/preview` (dry-run routing for a hypothetical post)                   |
-| SLA            | `GET/POST /sla-policies`, `PATCH`/`DELETE /:id`                                                                                               |
-| Email          | `GET/PATCH /email/settings`, `POST /email/test`, `GET/PATCH /email/templates/:key`, `POST /email/templates/:key/preview`, `GET /email/logs`   |
-| Retention      | `GET/PATCH /retention-policies`, `POST /retention/run` (`dryRun` default true), `GET /retention/runs`                                         |
-| Jobs           | `GET /jobs`, `GET /jobs/:id`, `POST /jobs/:id/retry`, `POST /jobs/:id/cancel`, `GET/PATCH /job-schedules`, `POST /job-schedules/:key/run-now` |
-| Audit          | `GET /audit-logs` (filters + CSV export) — read-only, no write endpoint exists                                                                |
-| Settings       | `GET/PATCH /settings`                                                                                                                         |
-| Health         | `GET /system/health` (detailed, admin-only view of the probes)                                                                                |
+| Area           | Endpoints                                                                                                                                                    |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Roles          | `GET/POST /roles`, `PATCH /roles/:id`, `GET /permissions`                                                                                                    |
+| Approval rules | `GET/POST /approval-rules`, `PATCH`/`DELETE /:id`, `POST /approval-rules/preview` (dry-run routing for a hypothetical post)                                  |
+| SLA            | `GET/POST /sla-policies`, `PATCH`/`DELETE /:id`                                                                                                              |
+| Email          | `GET/PATCH /email/settings`, `POST /email/test`, `GET/PATCH /email/templates/:key`, `POST /email/templates/:key/preview`, `GET /email/logs`                  |
+| Retention      | `GET/PATCH /retention-policies`, `POST /retention/run` (`dryRun` default true), `GET /retention/runs`                                                        |
+| Jobs           | `GET /jobs`, `GET /jobs/:id`, `POST /jobs/:id/retry`, `POST /jobs/:id/cancel`, `GET/PATCH /job-schedules`, `POST /job-schedules/:key/run-now`                |
+| Audit          | `GET /audit-logs` (filters + CSV export) — read-only, no write endpoint exists                                                                               |
+| Settings       | `GET/PATCH /settings`                                                                                                                                        |
+| Certificate    | `GET /certificate` (current subject/issuer/validity), `POST /certificate` (`multipart/form-data`: `.jks` file + `keystorePassword` + optional `keyPassword`) |
+| Health         | `GET /system/health` (detailed, admin-only view of the probes)                                                                                               |
 
 ### Health — unversioned
 

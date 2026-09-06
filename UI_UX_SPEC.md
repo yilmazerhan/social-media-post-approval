@@ -337,12 +337,14 @@ readable in greyscale, and always accompany a data table — never a chart alone
 
 Sections: Users · Roles · Groups · Departments · Approval rules · Workflow ·
 SLA policies · Email configuration · Email templates · Notifications ·
-Retention · Background jobs · Audit logs · System settings.
+Retention · Background jobs · Audit logs · System settings · TLS Certificate.
 Consistent pattern: list → detail drawer → form with Zod validation → confirm →
 toast. Approval rules include a "test this rule" preview that shows which route
 a hypothetical post would take. Retention always defaults to **dry run** and
 shows what _would_ be deleted before anything is. Audit logs are read-only, with
-no edit or delete affordance anywhere in the UI.
+no edit or delete affordance anywhere in the UI. TLS Certificate shows the
+current certificate's subject, issuer and validity, and lets an admin upload a
+replacement (a `.jks` keystore) behind a confirmation dialog — DEPLOYMENT.md §6.
 
 ---
 

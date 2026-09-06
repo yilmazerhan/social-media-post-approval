@@ -42,11 +42,14 @@ postgres   :5432      data (or a customer-managed server instead)
 
 `app` and `worker` run the same image with a different command. Volumes:
 
-| Volume          | Mounted at                           | Contents                     |
-| --------------- | ------------------------------------ | ---------------------------- |
-| `ca-uploads`    | `/opt/content-approval/data/uploads` | attachments, thumbnails, tmp |
-| `ca-pgdata`     | `/var/lib/postgresql/data`           | database                     |
-| `./nginx/certs` | `/etc/nginx/certs` (read-only)       | TLS certificate, key, chain  |
+| Volume       | Mounted at                                                                 | Contents                     |
+| ------------ | -------------------------------------------------------------------------- | ---------------------------- |
+| `ca-uploads` | `/opt/content-approval/data/uploads`                                       | attachments, thumbnails, tmp |
+| `ca-pgdata`  | `/var/lib/postgresql/data`                                                 | database                     |
+| `./certs`    | `app`: `/app/certs` (read-write) — `nginx`: `/etc/nginx/certs` (read-only) | TLS certificate, key         |
+
+`app` writes here when a certificate is uploaded from Administration -> TLS
+Certificate (§6, §11); `nginx` only ever reads it.
 
 ---
 
@@ -249,6 +252,20 @@ Certificates are always customer-provided. Let's Encrypt is possible where the
 host has Internet access and is documented as optional — it is never a
 dependency. Keep `client_max_body_size` and `MAX_UPLOAD_SIZE` in step; a
 mismatch produces a confusing 413 with no application-level message.
+
+`scripts/install.sh` puts a self-signed placeholder certificate at `./certs`
+on first install so HTTPS works immediately (§4, §11 — replace it before
+go-live). An admin can later upload a real one from Administration -> TLS
+Certificate (a `.jks` keystore, converted to PEM server-side) without ever
+touching the server: `app` writes the new `server.crt`/`server.key` into the
+same shared `./certs` volume nginx reads from (§2's volume table), and the
+`nginx` service's `command` runs `nginx/watch-and-reload.sh` instead of the
+image's default — a small wrapper that starts nginx normally and polls the
+certificate files' hash every 10s, running `nginx -s reload` (graceful, drops
+no in-flight connection) when they change. This is deliberately not done by
+having `app` call `docker compose exec nginx nginx -s reload` itself, which
+would mean mounting the Docker socket into `app` — root-equivalent access to
+the host — just to trigger a reload.
 
 ---
 

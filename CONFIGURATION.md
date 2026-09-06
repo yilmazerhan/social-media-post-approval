@@ -113,18 +113,19 @@ server.
 
 ## 6. Storage and media
 
-| Variable                       | Required | Default                                     | Notes                                |
-| ------------------------------ | :------: | ------------------------------------------- | ------------------------------------ |
-| `STORAGE_PATH`                 |    ✓     | `/opt/content-approval/data/uploads`        | must be writable by the runtime user |
-| `STORAGE_TMP_PATH`             |          | `${STORAGE_PATH}/tmp`                       |                                      |
-| `MAX_UPLOAD_SIZE`              |          | `104857600` (100 MB)                        | per file, enforced while streaming   |
-| `MAX_IMAGE_SIZE`               |          | `10485760` (10 MB)                          |                                      |
-| `MAX_ATTACHMENTS_PER_POST`     |          | `10`                                        |                                      |
-| `ALLOWED_IMAGE_TYPES`          |          | `image/jpeg,image/png,image/webp,image/gif` | SVG is never allowed                 |
-| `ALLOWED_VIDEO_TYPES`          |          | `video/mp4,video/webm,video/quicktime`      |                                      |
-| `THUMBNAIL_WIDTH`              |          | `480`                                       |                                      |
-| `FFMPEG_PATH` / `FFPROBE_PATH` |          | `/usr/bin/ffmpeg`, `/usr/bin/ffprobe`       |                                      |
-| `UPLOAD_TMP_TTL_MINUTES`       |          | `240`                                       | temp sweep age                       |
+| Variable                       | Required | Default                                     | Notes                                                                                                                                                                  |
+| ------------------------------ | :------: | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `STORAGE_PATH`                 |    ✓     | `/opt/content-approval/data/uploads`        | must be writable by the runtime user                                                                                                                                   |
+| `STORAGE_TMP_PATH`             |          | `${STORAGE_PATH}/tmp`                       |                                                                                                                                                                        |
+| `TLS_CERT_DIR`                 |          | `/opt/content-approval/certs`               | must be writable by the runtime user; also the directory nginx reads `server.crt`/`server.key` from (DEPLOYMENT.md §6) — Administration -> TLS Certificate writes here |
+| `MAX_UPLOAD_SIZE`              |          | `104857600` (100 MB)                        | per file, enforced while streaming                                                                                                                                     |
+| `MAX_IMAGE_SIZE`               |          | `10485760` (10 MB)                          |                                                                                                                                                                        |
+| `MAX_ATTACHMENTS_PER_POST`     |          | `10`                                        |                                                                                                                                                                        |
+| `ALLOWED_IMAGE_TYPES`          |          | `image/jpeg,image/png,image/webp,image/gif` | SVG is never allowed                                                                                                                                                   |
+| `ALLOWED_VIDEO_TYPES`          |          | `video/mp4,video/webm,video/quicktime`      |                                                                                                                                                                        |
+| `THUMBNAIL_WIDTH`              |          | `480`                                       |                                                                                                                                                                        |
+| `FFMPEG_PATH` / `FFPROBE_PATH` |          | `/usr/bin/ffmpeg`, `/usr/bin/ffprobe`       |                                                                                                                                                                        |
+| `UPLOAD_TMP_TTL_MINUTES`       |          | `240`                                       | temp sweep age                                                                                                                                                         |
 
 ## 7. Worker and jobs
 

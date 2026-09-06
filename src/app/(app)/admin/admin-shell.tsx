@@ -16,6 +16,7 @@ import { RetentionSection } from "./sections/retention-section";
 import { JobsSection } from "./sections/jobs-section";
 import { AuditLogsSection } from "./sections/audit-logs-section";
 import { SystemSettingsSection } from "./sections/system-settings-section";
+import { TlsCertificateSection } from "./sections/tls-certificate-section";
 
 /**
  * The permission keys this shell actually reads. Kept as a plain interface
@@ -35,6 +36,7 @@ export interface AdminGrants {
   RETENTION_MANAGE: boolean;
   JOB_MANAGE: boolean;
   AUDIT_READ: boolean;
+  CERTIFICATE_MANAGE: boolean;
 }
 
 interface SectionDef {
@@ -130,6 +132,12 @@ export function AdminShell({ grants }: { grants: AdminGrants }) {
       label: "System settings",
       visible: grants.SETTINGS_MANAGE,
       render: () => <SystemSettingsSection />,
+    },
+    {
+      value: "tls-certificate",
+      label: "TLS Certificate",
+      visible: grants.CERTIFICATE_MANAGE,
+      render: () => <TlsCertificateSection />,
     },
   ];
 

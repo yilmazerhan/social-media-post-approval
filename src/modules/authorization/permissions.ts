@@ -108,6 +108,11 @@ export const PERMISSIONS = [
     category: "administration",
     description: "Configure email and templates",
   },
+  {
+    key: "CERTIFICATE_MANAGE",
+    category: "administration",
+    description: "Upload and manage the TLS certificate",
+  },
 ] as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[number]["key"];
