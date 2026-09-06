@@ -77,12 +77,10 @@ test.describe("Full business journey", () => {
     await page.getByRole("button", { name: "Confirm" }).click();
     await expect(page.getByText("CHANGES REQUESTED")).toBeVisible();
 
-    // 3. Creator edits and resubmits.
-    // The dashboard's own "Changes requested" tile links to /posts?status=
-    // CHANGES_REQUESTED — that list page is still ComingSoon (see the
-    // Phase 26 retrospective's "My Posts" gap), so this goes straight to
-    // the post via its known id rather than through a page that can't
-    // render it yet.
+    // 3. Creator edits and resubmits. Goes straight to the post via its
+    // known id (tests/e2e/posts.spec.ts already covers reaching a post
+    // through the My Posts list itself) rather than by clicking through
+    // the dashboard's "Changes requested" tile.
     await login(page, "john.doe@example.local", password);
     await page.goto(`/posts/${postId}/edit`);
 

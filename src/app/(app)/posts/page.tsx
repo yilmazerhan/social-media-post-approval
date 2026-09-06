@@ -1,14 +1,29 @@
 import type { Metadata } from "next";
-import { ComingSoon } from "@/components/app/coming-soon";
+import { Suspense } from "react";
+import { redirect } from "next/navigation";
+import { getServerSessionContext } from "@/server/http/request-context";
+import { prisma } from "@/server/db";
+import { PageHeader } from "@/components/app/page-header";
+import { PostsView } from "@/components/app/posts/posts-view";
 
 export const metadata: Metadata = { title: "My Posts — Content Approval" };
 
-export default function PostsPage() {
+export default async function PostsPage() {
+  const sessionContext = await getServerSessionContext();
+  if (!sessionContext) redirect("/login");
+
+  const departments = await prisma.department.findMany({
+    where: { isActive: true },
+    select: { id: true, name: true },
+    orderBy: { name: "asc" },
+  });
+
   return (
-    <ComingSoon
-      title="My Posts"
-      breadcrumbs={[{ label: "My Posts" }]}
-      phaseNote="Post listing, filters and the DataTable arrive with the rest of the post lifecycle in Phase 9/10."
-    />
+    <div>
+      <PageHeader title="My Posts" breadcrumbs={[{ label: "My Posts" }]} />
+      <Suspense>
+        <PostsView departments={departments} />
+      </Suspense>
+    </div>
   );
 }

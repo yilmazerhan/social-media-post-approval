@@ -18,8 +18,12 @@ async function main() {
   if (!title) {
     throw new Error("Usage: tsx prisma/delete-post-by-title.ts <title>");
   }
+  // A post never submitted keeps its user-visible title in `draftTitle`
+  // only — `title` stays whatever it was set to at creation (empty) until
+  // a real submit finalizes it (see submit.ts's `draftTitle ?? title`).
+  const where = { OR: [{ title }, { draftTitle: title }] };
   const posts = await prisma.post.findMany({
-    where: { title },
+    where,
     select: { id: true },
   });
   const postIds = posts.map((p) => p.id);
@@ -28,7 +32,7 @@ async function main() {
       where: { postId: { in: postIds } },
     });
   }
-  await prisma.post.deleteMany({ where: { title } });
+  await prisma.post.deleteMany({ where });
 }
 
 main()

@@ -1,6 +1,11 @@
 import { prisma } from "@/server/db";
 import { protectedHandler, WorkflowError } from "@/server/http/handler";
-import { updatePostSchema, getPostForEdit, updateDraft } from "@/modules/posts";
+import {
+  updatePostSchema,
+  getPostForEdit,
+  updateDraft,
+  deletePost,
+} from "@/modules/posts";
 
 const EDITABLE_STATUSES = new Set(["DRAFT", "CHANGES_REQUESTED", "APPROVED"]);
 
@@ -51,5 +56,27 @@ export const PATCH = protectedHandler<
       input,
     });
     return { data: result };
+  },
+);
+
+export const DELETE = protectedHandler<
+  undefined,
+  { creatorId: string; status: string }
+>(
+  {
+    permission: "POST_DELETE_OWN",
+    loadResource: loadOwnedPost,
+    workflowGuard: ({ resource }) => {
+      if (resource.status !== "DRAFT") {
+        throw new WorkflowError(
+          "Only a draft can be deleted.",
+          "INVALID_TRANSITION",
+        );
+      }
+    },
+  },
+  async ({ params, user }) => {
+    await deletePost({ postId: params.id, userId: user.id });
+    return { data: { deleted: true } };
   },
 );
