@@ -219,6 +219,28 @@ const JOB_SCHEDULES: Array<{
   },
 ];
 
+/**
+ * The one populated row in `SystemSetting` — BACKUP_RESTORE.md §7's marker:
+ * the external backup script sets its value through the existing
+ * `PATCH /admin/settings/:key` endpoint after each successful run, and the
+ * admin dashboard's health tiles read it back. `value: null` at bootstrap
+ * means "never backed up yet," reported as a `degraded` (not `down`) tile.
+ */
+const SYSTEM_SETTINGS: Array<{
+  key: string;
+  type: string;
+  category: string;
+  description: string;
+}> = [
+  {
+    key: "system.backup.lastRunAt",
+    type: "STRING",
+    category: "backup",
+    description:
+      "ISO-8601 timestamp of the last successful backup run, set by scripts/backup.sh.",
+  },
+];
+
 const CATCH_ALL_APPROVAL_RULE_KEY = "catch-all";
 
 export async function bootstrapSystemData(prisma: PrismaClient) {
@@ -299,6 +321,19 @@ export async function bootstrapSystemData(prisma: PrismaClient) {
         description: `Retention window for ${policy.target.toLowerCase()} records.`,
       },
       update: { retentionDays: policy.retentionDays },
+    });
+  }
+
+  for (const setting of SYSTEM_SETTINGS) {
+    await prisma.systemSetting.upsert({
+      where: { key: setting.key },
+      create: {
+        key: setting.key,
+        type: setting.type as never,
+        category: setting.category,
+        description: setting.description,
+      },
+      update: { description: setting.description },
     });
   }
 

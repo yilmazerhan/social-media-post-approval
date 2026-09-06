@@ -240,6 +240,11 @@ const envSchema = z
     AUTOSAVE_INTERVAL_SECONDS: zInt(3, { min: 1 }),
     COMMENT_MAX_CHARACTERS: zInt(2000, { min: 1 }),
     COMMENT_EDIT_WINDOW_MINUTES: zInt(30, { min: 0 }),
+
+    // ---- 9. Backup visibility (BACKUP_RESTORE.md §7) --------------------
+    // A nightly backup is "stale" past this many hours since its last
+    // recorded run — the health tile flags it, it never blocks anything.
+    BACKUP_STALENESS_HOURS: zInt(26, { min: 1 }),
   })
   .superRefine((data, ctx) => {
     if (data.AUTH_SAML_ENABLED) {

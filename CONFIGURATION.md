@@ -200,7 +200,21 @@ Fail fast, loudly, at start-up; never half-work at request time.
 
 ---
 
-## 11. References
+## 11. Backup visibility
+
+| Variable                 | Required | Default | Notes                                                                                              |
+| ------------------------ | :------: | ------- | -------------------------------------------------------------------------------------------------- |
+| `BACKUP_STALENESS_HOURS` |          | `26`    | the dashboard's "Backup" health tile degrades past this many hours since `system.backup.lastRunAt` |
+
+`scripts/backup.sh` itself reads `DATABASE_URL`, `STORAGE_PATH`, `BACKUP_DIR`,
+and (only for its marker step) `APP_URL`/`BACKUP_MARKER_EMAIL`/
+`BACKUP_MARKER_PASSWORD` — these are script inputs, not application
+configuration, and are documented in full in BACKUP_RESTORE.md §7 rather
+than repeated here.
+
+---
+
+## 12. References
 
 - Twelve-Factor App — Config — https://12factor.net/config
 - Next.js environment variables — https://nextjs.org/docs/app/building-your-application/configuring/environment-variables

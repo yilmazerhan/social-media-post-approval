@@ -402,13 +402,36 @@ describe("getSystemApprovalStats and getUserStats", () => {
 });
 
 describe("getSystemHealth", () => {
-  it("reports the database and storage tiles as healthy", async () => {
+  it("reports the database tile healthy and the storage tile writable with a usage figure", async () => {
     await mkdir(config.STORAGE_PATH, { recursive: true });
     const tiles = await getSystemHealth();
     const database = tiles.find((t) => t.key === "database");
     const storage = tiles.find((t) => t.key === "storage");
     expect(database?.status).toBe("healthy");
-    expect(storage?.status).toBe("healthy");
+    // "degraded" is a real, disk-usage-dependent status now (not just
+    // writability) — never "down", since the directory does exist and is
+    // writable here.
+    expect(storage?.status).not.toBe("down");
+    expect(storage?.detail).toMatch(/used of/);
+  });
+
+  it("reports the backup tile as degraded before any backup has run, and healthy once the marker is set", async () => {
+    const before = await getSystemHealth();
+    expect(before.find((t) => t.key === "backup")?.status).toBe("degraded");
+
+    await prisma.systemSetting.update({
+      where: { key: "system.backup.lastRunAt" },
+      data: { value: new Date().toISOString() },
+    });
+    try {
+      const after = await getSystemHealth();
+      expect(after.find((t) => t.key === "backup")?.status).toBe("healthy");
+    } finally {
+      await prisma.systemSetting.update({
+        where: { key: "system.backup.lastRunAt" },
+        data: { value: null },
+      });
+    }
   });
 
   it("reports the worker tile as degraded after a permanently failed job", async () => {

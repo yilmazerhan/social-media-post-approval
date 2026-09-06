@@ -207,11 +207,55 @@ before it matters.
 
 ## 7. Operational visibility
 
-- Administration → System Health shows storage usage and the timestamp of the
-  last recorded backup when the backup script writes a marker
-  (`system.backup.lastRunAt`) through the admin API.
+- The dashboard's system-health tiles (visible to an admin) show storage
+  usage (used/total, from the `STORAGE_PATH` filesystem) and a "Backup" tile:
+  healthy within `BACKUP_STALENESS_HOURS` (default 26) of the last recorded
+  run, degraded if none has ever been recorded or it's older than that, down
+  if the marker itself can't be read.
+- The marker is `system.backup.lastRunAt`, a `SystemSetting` row seeded
+  empty by `bootstrapSystemData()` and written by the backup script itself
+  through the existing `PATCH /api/v1/admin/settings/system.backup.lastRunAt`
+  endpoint — no separate marker endpoint exists; this is genuinely "through
+  the admin API," using the same session auth every other admin action does.
+  A dedicated LOCAL account for this (not a human's login) is the intended
+  setup — `BACKUP_MARKER_EMAIL`/`BACKUP_MARKER_PASSWORD` below.
 - Backup jobs themselves run outside the application (cron/systemd), because a
   backup that depends on the application being healthy is not a backup.
+
+### Scripts
+
+`scripts/backup.sh` implements §2 above end to end (`pg_dump -Fc`, then a
+files sync/archive excluding `tmp`, then the marker write) and exits non-zero
+on any failure in the database or marker steps (a missing `STORAGE_PATH` is
+only a warning — the same "extra files are harmless, missing ones aren't"
+reasoning as the ordering note above). It reads:
+
+| Variable                 | Required       | Purpose                                              |
+| ------------------------ | -------------- | ---------------------------------------------------- |
+| `DATABASE_URL`           | yes            | passed to `pg_dump` (Prisma's `?schema=` stripped)   |
+| `STORAGE_PATH`           | yes            | the uploads directory to back up                     |
+| `BACKUP_DIR`             | no (`/backup`) | where dumps/archives land                            |
+| `APP_URL`                | no             | base URL of a running instance, for the marker step  |
+| `BACKUP_MARKER_EMAIL`    | no             | a LOCAL admin account used only to record the marker |
+| `BACKUP_MARKER_PASSWORD` | no             | its password                                         |
+
+Config (`.env`, `docker-compose.yml`, `nginx/`) isn't handled by this script —
+its exact layout varies per deployment and needs its own encryption step; see
+§2's manual `tar`/`gpg` commands above.
+
+`scripts/restore-drill.sh` performs §4's database (and, optionally, files)
+restore against a throwaway database you create first, runs
+`prisma migrate deploy` against it, and prints the row counts from §5's
+checklist — this **is** the quarterly drill script §6 asks for, not a
+separate procedure. It reports elapsed time and reminds you which checklist
+items still need a running app pointed at the restored database (login,
+opening the hero post, background jobs, the retention dry run).
+
+Both scripts were run for real against this repository's own dev database as
+part of building this section: a backup, a restore onto a scratch database,
+and a live marker round-trip through a running dev server all completed
+successfully, with post-restore row counts matching the source database
+exactly. See IMPLEMENTATION_PLAN.md's Phase 24 retrospective for the numbers.
 
 ---
 
