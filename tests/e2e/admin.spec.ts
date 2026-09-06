@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
 import { readSeededPassword, login } from "./support/demo-accounts";
 import { deleteUserByEmail } from "./support/db-cleanup";
 
@@ -137,5 +138,26 @@ test.describe("Administration", () => {
     await expect(
       reopenedSheet.getByLabel("Manage roles and permission grants"),
     ).toBeChecked();
+  });
+
+  test("the Users and Roles tables have no automatically detectable accessibility violations", async ({
+    page,
+  }) => {
+    const password = readSeededPassword();
+    await login(page, "admin@example.local", password);
+
+    await openAdminSection(page, "Users");
+    await expect(page.getByRole("table")).toBeVisible();
+    const usersResults = await new AxeBuilder({ page })
+      .include("body")
+      .analyze();
+    expect(usersResults.violations).toEqual([]);
+
+    await openAdminSection(page, "Roles");
+    await expect(page.getByRole("table")).toBeVisible();
+    const rolesResults = await new AxeBuilder({ page })
+      .include("body")
+      .analyze();
+    expect(rolesResults.violations).toEqual([]);
   });
 });

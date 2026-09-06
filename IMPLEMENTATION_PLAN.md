@@ -4,7 +4,7 @@ The build order, what "done" means at each step, and where we currently are.
 The 28 phases from the master specification are grouped into seven milestones so
 progress is reviewable in meaningful chunks rather than one uncontrolled change.
 
-**Current status: Phase 25 complete — proceeding directly to Phase 26 per the user's standing instruction to work through all remaining phases.**
+**Current status: Phase 26 complete — proceeding directly to Phase 27 per the user's standing instruction to work through all remaining phases.**
 
 ---
 
@@ -1909,13 +1909,92 @@ security-review` passes; representative e2e suites (dashboard, editor,
   admin) pass under real CSP enforcement in Chromium; the DB two-role model
   was manually verified end-to-end against a real scratch database.
 
-### Phase 26 · Testing
+### Phase 26 · Testing — **complete**
 
-Complete the unit, integration and E2E suites — the 21-step business journey and
-the explicit negative-authorization cases from §37 of the master specification,
-plus axe checks on the shell, both hero screens and the tables.
-**Exit**: full suite green in CI from a clean database; coverage meaningful on
-the state machine, authorization, SLA and retention modules.
+The master specification this plan distills from was never delivered as a
+repo file (Phase 1 folded it into the ten architecture documents), so its
+"21-step business journey" and "§37 negative-authorization cases" have no
+numbered text to check against here. Interpreted in good faith against
+what the app actually is: the 21-step journey as the full create → submit →
+changes-requested → resubmit → approve lifecycle in one continuous run
+(new: `tests/e2e/full-journey.spec.ts`), and the negative-authorization
+cases as the per-endpoint 403/permission checks every phase since Phase 5
+has already been adding alongside its own routes (the cross-cutting check
+table's own "Authorization: negative tests for each new endpoint" row) —
+not a separate suite to write from scratch now.
+
+**`full-journey.spec.ts`**: creator drafts and submits, the approver
+requests changes, the creator edits and resubmits (proving `RESUBMIT`
+reuses the same Submit button and API path as the original `SUBMIT`, and
+that `canEdit` flips back on for a `CHANGES_REQUESTED` post), the approver
+approves the new version, and the post's own Approval history tab shows
+both decisions against the correct version numbers. Every other e2e spec
+covers one slice of this in isolation; this is the one place the whole
+thing runs end to end against a real browser.
+
+Getting it green took three real rounds of debugging, in order:
+
+1. Two strict-mode locator bugs — `getByText("Reviewing version 2")` and
+   `getByText("APPROVED")` each matched more than one element on their
+   pages (a second element containing the same substring elsewhere in the
+   DOM). Fixed with `{ exact: true }` / a more specific match.
+2. A timeout that looked like a hung browser tab. Deep instrumentation
+   (console/network/dialog listeners, a `page.evaluate` heartbeat probe,
+   live `ps` sampling during the hang) initially pointed at something
+   dramatic — a frozen renderer, a possible Tiptap/ProseMirror listener
+   leak on the second editor mount in one browser session. A `ps` snapshot
+   taken *during* the actual hang (not after, which is what an earlier
+   session's investigation of the same symptom had done) showed the real
+   cause: `next dev --turbopack`'s server process pegged near 200% CPU on
+   this sandbox's constrained cores, recompiling routes on demand, starving
+   the renderer of cycles. Raising the test's own timeout to 60s (`test
+   .setTimeout(60_000)` — this one test does five logins and two full
+   submit/approval round trips, genuinely more real work than any other
+   single spec) made it pass reliably; a standalone repro with a 90s budget
+   confirmed the "hung" `setTimeout` really did resolve at ~3000ms once it
+   got CPU time. Not a product bug.
+3. Running the full `npm test` suite for real (rather than a bare `vitest
+   run` missing `.env.test`) turned up nothing to fix in product code —
+   two integration-test failures observed along the way (`attachments-
+   pipeline.test.ts`'s ffprobe/ffmpeg tests timing out at the default 5s)
+   were the same CPU-contention story, confirmed by rerunning the file in
+   isolation (passes in ~2s) and rerunning the full suite twice more
+   (337/337 both times).
+
+**Axe coverage**: `shell.spec.ts`, `editor.spec.ts` and
+`approval-review.spec.ts` already covered the shell and both hero screens;
+`approval-queue.spec.ts` and `post-details.spec.ts` already covered two
+more real screens. The one gap against "the tables" (plural) was the
+admin section's DataTable-heavy screens — closed with a new test in
+`admin.spec.ts` checking the Users and Roles tables, both clean.
+
+**Coverage on the four named modules** (state machine, authorization, SLA,
+retention) was already substantial from the phases that built them —
+`tests/unit/approvals-state-machine.test.ts`,
+`tests/unit/authorization.test.ts` plus
+`tests/integration/protected-handler.test.ts`, `tests/integration/sla.test.ts`,
+`tests/integration/retention.test.ts` (and their Phase 19/20 companions) —
+re-verified here as still green rather than rebuilt.
+
+**Known gap, flagged rather than fixed here**: `/posts` ("My Posts",
+UI_UX_SPEC.md §6 — tabs across All/Drafts/Pending approval/Changes
+requested/Approved/Rejected/Archived over a full DataTable) is still the
+`ComingSoon` placeholder from Phase 6. It's referenced by the employee
+dashboard's own "Changes requested" tile (`href="/posts?status=..."`) and
+by the editor's own breadcrumb link, and neither Phase 9 nor Phase 10's
+retrospective claims to have built it despite both claiming "the rest of
+the post lifecycle" — it was simply never done. Building it is a real,
+UI_UX_SPEC-sized feature, not something that belongs under a "Testing"
+phase's banner, so `full-journey.spec.ts` navigates to the post directly
+by id instead of through the list page, and this gap needs its own
+follow-up phase (it doesn't cleanly belong to 27 or 28 either).
+
+**Exit — verified**: `tsc --noEmit`, `eslint`, `prettier --check .`, and
+`npm run build` all clean. `npm test` (the real script — `.env.test` layered
+over `.env`, migrating and running against the dedicated
+`content_approval_test` database, never the dev one) green twice in a row:
+47 files / 337 tests. `full-journey.spec.ts` and the extended
+`admin.spec.ts` each green across repeated runs.
 
 ### Phase 27 · Production deployment
 
