@@ -222,6 +222,10 @@ const envSchema = z
     JOB_DEFAULT_MAX_ATTEMPTS: zInt(5, { min: 1 }),
     SCHEDULER_ENABLED: zBool(true),
     SCHEDULER_TICK_SECONDS: zInt(30, { min: 1 }),
+    // ARCHITECTURE.md §9 — /api/ready's "worker heartbeat" check: how long
+    // since the worker process's last successful poll tick before it's
+    // considered not actually running, not just idle.
+    WORKER_HEARTBEAT_STALE_SECONDS: zInt(60, { min: 10 }),
 
     // ---- 8. Workflow defaults (bootstrap values for SystemSetting) ------
     SLA_DEFAULT_MINUTES: zInt(1440, { min: 1 }),

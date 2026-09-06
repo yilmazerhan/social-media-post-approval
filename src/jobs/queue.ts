@@ -127,3 +127,11 @@ export async function pollOnce(workerId: string): Promise<number> {
   }
   return ran;
 }
+
+/** ARCHITECTURE.md §9's `/api/ready` worker-heartbeat check — proof the poll loop is actually reaching the database, not just that the process started. */
+export async function recordHeartbeat(): Promise<void> {
+  await prisma.systemSetting.update({
+    where: { key: "system.worker.lastHeartbeatAt" },
+    data: { value: new Date().toISOString() },
+  });
+}

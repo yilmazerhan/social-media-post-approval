@@ -83,6 +83,10 @@ chmod 600 .env
 # generate a session secret
 openssl rand -base64 48
 # edit .env: APP_URL, DATABASE_URL, SESSION_SECRET, SMTP_*, SAML_*, STORAGE_PATH
+# using the containerised postgres service? DATABASE_URL's host must be
+# "postgres" (the compose service name), not "localhost" — the app and
+# worker containers reach it over the compose network, not the host's.
+# Also set POSTGRES_USER/POSTGRES_PASSWORD/POSTGRES_DB to match.
 $EDITOR .env
 
 # 3. TLS material (customer-provided)

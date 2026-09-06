@@ -16,7 +16,7 @@ import "@/modules/sla/jobs";
 import "@/modules/retention/jobs";
 import { config } from "@/server/config";
 import { workerLogger } from "@/server/logger";
-import { pollOnce } from "./queue";
+import { pollOnce, recordHeartbeat } from "./queue";
 import { evaluateSchedules } from "./scheduler";
 
 let stopping = false;
@@ -28,6 +28,7 @@ async function tick() {
     if (ran > 0) {
       workerLogger.info({ workerId: config.WORKER_ID, ran }, "processed jobs");
     }
+    await recordHeartbeat();
   } catch (err) {
     workerLogger.error({ err }, "poll cycle failed");
   }

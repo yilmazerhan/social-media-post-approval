@@ -434,7 +434,43 @@ describe("getSystemHealth", () => {
     }
   });
 
-  it("reports the worker tile as degraded after a permanently failed job", async () => {
+  it("reports the worker tile as down when no heartbeat has ever been recorded", async () => {
+    const original = await prisma.systemSetting.findUnique({
+      where: { key: "system.worker.lastHeartbeatAt" },
+    });
+    await prisma.systemSetting.update({
+      where: { key: "system.worker.lastHeartbeatAt" },
+      data: { value: null },
+    });
+    try {
+      const tiles = await getSystemHealth();
+      const worker = tiles.find((t) => t.key === "worker");
+      expect(worker?.status).toBe("down");
+      expect(worker?.detail).toMatch(/no worker heartbeat/i);
+    } finally {
+      await prisma.systemSetting.update({
+        where: { key: "system.worker.lastHeartbeatAt" },
+        data: { value: original?.value ?? null },
+      });
+    }
+  });
+
+  it("reports the worker tile as down when the last heartbeat is stale", async () => {
+    await prisma.systemSetting.update({
+      where: { key: "system.worker.lastHeartbeatAt" },
+      data: { value: new Date(Date.now() - 10 * 60 * 1000).toISOString() },
+    });
+    const tiles = await getSystemHealth();
+    const worker = tiles.find((t) => t.key === "worker");
+    expect(worker?.status).toBe("down");
+    expect(worker?.detail).toMatch(/last heartbeat/i);
+  });
+
+  it("reports the worker tile as degraded after a permanently failed job, given a fresh heartbeat", async () => {
+    await prisma.systemSetting.update({
+      where: { key: "system.worker.lastHeartbeatAt" },
+      data: { value: new Date().toISOString() },
+    });
     const job = await prisma.backgroundJob.create({
       data: {
         type: "EMAIL_SEND",

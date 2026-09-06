@@ -1,11 +1,12 @@
 /**
  * Best-effort liveness checks backing the admin dashboard's health tiles
- * (UI_UX_SPEC.md §6). This is diagnostic surface, not the production
- * container health-check endpoint — that's Phase 27's `/api/health` and
- * `/api/ready` (ARCHITECTURE.md's directory layout, DEPLOYMENT.md).
+ * (UI_UX_SPEC.md §6) — the same probes `/api/ready`
+ * (`src/app/api/ready/route.ts`) reuses for ARCHITECTURE.md §9's
+ * "database, storage writability, worker heartbeat, SMTP configuration
+ * presence" readiness check, rather than duplicating them.
  *
  * Each tile fails independently: one dependency being down never prevents
- * the other three from reporting.
+ * the others from reporting.
  */
 import { access, constants as fsConstants, statfs } from "node:fs/promises";
 import { config } from "@/server/config";
@@ -35,7 +36,7 @@ function formatBytes(bytes: number): string {
 const WORKER_FAILURE_WINDOW_HOURS = 24;
 const EMAIL_FAILURE_WINDOW_HOURS = 24;
 
-async function checkDatabase(): Promise<HealthTile> {
+export async function checkDatabase(): Promise<HealthTile> {
   try {
     await prisma.$queryRaw`SELECT 1`;
     return {
@@ -54,7 +55,7 @@ async function checkDatabase(): Promise<HealthTile> {
   }
 }
 
-async function checkStorage(): Promise<HealthTile> {
+export async function checkStorage(): Promise<HealthTile> {
   try {
     await access(config.STORAGE_PATH, fsConstants.W_OK);
     const stats = await statfs(config.STORAGE_PATH);
@@ -119,8 +120,57 @@ async function checkBackup(): Promise<HealthTile> {
   }
 }
 
-async function checkWorker(): Promise<HealthTile> {
+/**
+ * ARCHITECTURE.md §9's "worker heartbeat" — an empty, error-free queue
+ * looks identical to "healthy" whether or not the worker process is
+ * actually running at all, so a fresh `system.worker.lastHeartbeatAt`
+ * (written every poll tick — src/jobs/queue.ts's `recordHeartbeat`) is the
+ * one signal that actually distinguishes "idle" from "not running."
+ */
+async function checkWorkerHeartbeat(): Promise<HealthTile> {
   try {
+    const setting = await prisma.systemSetting.findUnique({
+      where: { key: "system.worker.lastHeartbeatAt" },
+    });
+    if (!setting?.value) {
+      return {
+        key: "worker",
+        label: "Worker",
+        status: "down",
+        detail: "No worker heartbeat recorded yet.",
+      };
+    }
+    const lastHeartbeatAt = new Date(setting.value);
+    const secondsSince = (Date.now() - lastHeartbeatAt.getTime()) / 1000;
+    if (secondsSince > config.WORKER_HEARTBEAT_STALE_SECONDS) {
+      return {
+        key: "worker",
+        label: "Worker",
+        status: "down",
+        detail: `Last heartbeat ${Math.round(secondsSince)}s ago (expected within ${config.WORKER_HEARTBEAT_STALE_SECONDS}s).`,
+      };
+    }
+    return {
+      key: "worker",
+      label: "Worker",
+      status: "healthy",
+      detail: `Last heartbeat ${lastHeartbeatAt.toISOString()}.`,
+    };
+  } catch {
+    return {
+      key: "worker",
+      label: "Worker",
+      status: "down",
+      detail: "Could not read the worker heartbeat.",
+    };
+  }
+}
+
+export async function checkWorker(): Promise<HealthTile> {
+  try {
+    const heartbeat = await checkWorkerHeartbeat();
+    if (heartbeat.status === "down") return heartbeat;
+
     const since = new Date(
       Date.now() - WORKER_FAILURE_WINDOW_HOURS * 60 * 60 * 1000,
     );
@@ -157,7 +207,31 @@ async function checkWorker(): Promise<HealthTile> {
   }
 }
 
-async function checkEmail(): Promise<HealthTile> {
+/**
+ * ARCHITECTURE.md §9's "SMTP configuration presence" — `SMTP_HOST`/
+ * `SMTP_FROM` are non-optional in `server/config.ts`'s schema, so this can
+ * only actually fail if `EMAIL_ENABLED` is on with a value the schema
+ * would already have rejected at boot; it's here as the same observable
+ * signal ARCHITECTURE.md asks `/api/ready` to expose, not a live SMTP
+ * connectivity probe (too slow and too network-flaky for a readiness gate).
+ */
+function checkSmtpConfigPresence(): HealthTile | null {
+  if (!config.EMAIL_ENABLED) return null;
+  if (!config.SMTP_HOST || !config.SMTP_FROM) {
+    return {
+      key: "email",
+      label: "Email",
+      status: "down",
+      detail: "SMTP is enabled but not configured.",
+    };
+  }
+  return null;
+}
+
+export async function checkEmail(): Promise<HealthTile> {
+  const configIssue = checkSmtpConfigPresence();
+  if (configIssue) return configIssue;
+
   try {
     const since = new Date(
       Date.now() - EMAIL_FAILURE_WINDOW_HOURS * 60 * 60 * 1000,

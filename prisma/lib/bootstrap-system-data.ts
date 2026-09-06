@@ -239,6 +239,13 @@ const SYSTEM_SETTINGS: Array<{
     description:
       "ISO-8601 timestamp of the last successful backup run, set by scripts/backup.sh.",
   },
+  {
+    key: "system.worker.lastHeartbeatAt",
+    type: "STRING",
+    category: "worker",
+    description:
+      "ISO-8601 timestamp of the worker process's last successful poll tick (src/jobs/worker.ts) — ARCHITECTURE.md §9's /api/ready worker-heartbeat check.",
+  },
 ];
 
 const CATCH_ALL_APPROVAL_RULE_KEY = "catch-all";

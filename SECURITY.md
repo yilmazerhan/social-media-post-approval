@@ -160,12 +160,16 @@ files are the operational record; the audit table is the authoritative one.
   unavoidable advisories.
 - Container images: pinned digests, multi-stage build, non-root user, no shell
   utilities beyond what runtime needs, read-only root filesystem where possible.
-  The Dockerfile implementing this is Phase 27's own deliverable (DEPLOYMENT.md
-  §3 already specifies it exactly: `node:22-bookworm-slim` runner, non-root
-  `app` uid 10001, `HEALTHCHECK` against `/api/health` — itself a Phase 27
-  route); Phase 25 verifies the specification is complete and correct rather
-  than building the image before there's a working health endpoint for its
-  `HEALTHCHECK` to call.
+  Delivered in Phase 27: the `Dockerfile` (`node:22-bookworm-slim` runner,
+  non-root `app` uid 10001, `HEALTHCHECK` against `/api/health`) and
+  `docker-compose.yml`'s `read_only: true` + `tmpfs: /tmp` on `app`/`worker`.
+  The runner keeps a full `node_modules`/source tree rather than only Next's
+  standalone-traced subset — `worker`, `db:bootstrap` and `job:enqueue` all
+  run TypeScript directly via `tsx`, and the migration entrypoint needs the
+  `prisma` CLI, neither reachable from Next's runtime-only tracing — so "no
+  shell utilities beyond what runtime needs" here means no separate build
+  toolchain (no `tsc`, no bundler) in the final layer, not a stripped
+  `node_modules`.
 - A security review is a named phase (Phase 25) with its own checklist, not an
   afterthought — `npm run security-review` (`scripts/security-review.sh`)
   runs it locally: `npm audit --omit=dev` against the exceptions below, a

@@ -8,6 +8,10 @@ const nextConfig: NextConfig = {
   // server bundle and letting Node `require` them directly at runtime is
   // Next.js's documented fix.
   serverExternalPackages: ["sharp", "file-type", "busboy"],
+  // DEPLOYMENT.md §3 — the runtime image ships only the traced standalone
+  // output (`.next/standalone` + `.next/static` + `public/`), not the full
+  // `node_modules`/build toolchain.
+  output: "standalone",
 };
 
 export default nextConfig;

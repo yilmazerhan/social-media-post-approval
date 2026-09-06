@@ -42,6 +42,12 @@ Docker/Podman secrets work without putting values in the environment.
 | `DATABASE_SSL`                  |          | `false` | `true` for a TLS-protected customer database                      |
 | `DATABASE_SSL_CA_FILE`          |          | —       | CA bundle path when `DATABASE_SSL=true`                           |
 
+`POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` are read only by the
+containerised `postgres` service in `docker-compose.yml` (DEPLOYMENT.md
+§4), never by the app — keep them in sync with the credentials embedded in
+`DATABASE_URL` above. Not needed against a customer-managed PostgreSQL
+server.
+
 ## 3. Security and session
 
 | Variable                                                        | Required | Default                      | Notes                                                  |
@@ -122,16 +128,17 @@ Docker/Podman secrets work without putting values in the environment.
 
 ## 7. Worker and jobs
 
-| Variable                   | Required | Default  | Notes                                                        |
-| -------------------------- | :------: | -------- | ------------------------------------------------------------ |
-| `WORKER_ENABLED`           |          | `true`   | set `false` in the web container when a separate worker runs |
-| `WORKER_CONCURRENCY`       |          | `4`      |                                                              |
-| `WORKER_POLL_INTERVAL_MS`  |          | `2000`   |                                                              |
-| `WORKER_ID`                |          | hostname | recorded in `lockedBy`                                       |
-| `JOB_STALE_AFTER_SECONDS`  |          | `900`    | reclaim jobs from a dead worker                              |
-| `JOB_DEFAULT_MAX_ATTEMPTS` |          | `5`      |                                                              |
-| `SCHEDULER_ENABLED`        |          | `true`   | `false` when using OS cron instead                           |
-| `SCHEDULER_TICK_SECONDS`   |          | `30`     |                                                              |
+| Variable                         | Required | Default  | Notes                                                        |
+| -------------------------------- | :------: | -------- | ------------------------------------------------------------ |
+| `WORKER_ENABLED`                 |          | `true`   | set `false` in the web container when a separate worker runs |
+| `WORKER_CONCURRENCY`             |          | `4`      |                                                              |
+| `WORKER_POLL_INTERVAL_MS`        |          | `2000`   |                                                              |
+| `WORKER_ID`                      |          | hostname | recorded in `lockedBy`                                       |
+| `JOB_STALE_AFTER_SECONDS`        |          | `900`    | reclaim jobs from a dead worker                              |
+| `JOB_DEFAULT_MAX_ATTEMPTS`       |          | `5`      |                                                              |
+| `SCHEDULER_ENABLED`              |          | `true`   | `false` when using OS cron instead                           |
+| `SCHEDULER_TICK_SECONDS`         |          | `30`     |                                                              |
+| `WORKER_HEARTBEAT_STALE_SECONDS` |          | `60`     | ARCHITECTURE.md §9's `/api/ready` worker-heartbeat threshold |
 
 ## 8. Workflow defaults (bootstrap values for `SystemSetting`)
 
