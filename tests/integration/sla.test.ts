@@ -313,5 +313,11 @@ describe("SLA_CHECK", () => {
       where: { type: "ESCALATION", postId, recipientId: escalationTarget.id },
     });
     expect(escalationNotification).not.toBeNull();
+
+    const escalationAudit = await prisma.auditLog.findFirst({
+      where: { action: "ASSIGNMENT_ESCALATED", entityId: assignmentBefore.id },
+    });
+    expect(escalationAudit).not.toBeNull();
+    expect(escalationAudit?.actorId).toBeNull();
   });
 });

@@ -11,6 +11,7 @@ import { prisma } from "@/server/db";
 import { config } from "@/server/config";
 import { registerJobHandler } from "@/jobs/queue";
 import { writeNotification, enqueueGroupFanout } from "@/modules/notifications";
+import { writeAudit } from "@/modules/audit";
 
 const OPEN_STATUSES = ["PENDING", "IN_PROGRESS"] as const;
 
@@ -185,9 +186,21 @@ registerJobHandler("SLA_ESCALATE", async (payload) => {
   }
   if (!targetUserId && !targetGroupId) return;
 
-  await prisma.approvalAssignment.update({
-    where: { id: assignment.id },
-    data: { escalationLevel: { increment: 1 }, escalatedAt: new Date() },
+  await prisma.$transaction(async (tx) => {
+    await tx.approvalAssignment.update({
+      where: { id: assignment.id },
+      data: { escalationLevel: { increment: 1 }, escalatedAt: new Date() },
+    });
+    await writeAudit(
+      {
+        action: "ASSIGNMENT_ESCALATED",
+        entityType: "ApprovalAssignment",
+        entityId: assignment.id,
+        postId: assignment.post.id,
+        metadata: { escalationTargetType: policy.escalationTargetType },
+      },
+      tx,
+    );
   });
 
   const notification = {

@@ -1,6 +1,7 @@
 import type { Priority } from "@/generated/prisma/client";
 import { NextResponse } from "next/server";
-import { getRejectionsReport, toCsv } from "@/modules/reports";
+import { getRejectionsReport } from "@/modules/reports";
+import { toCsv } from "@/server/http/csv";
 import { protectedHandler } from "@/server/http/handler";
 import { jsonError } from "@/server/http/envelope";
 

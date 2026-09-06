@@ -24,6 +24,7 @@ import {
   cancelJob,
   listJobSchedules,
   listAuditLogs,
+  listAuditLogsForExport,
   listSystemSettings,
   updateSystemSetting,
 } from "@/modules/administration";
@@ -308,6 +309,84 @@ describe("Audit logs", () => {
     );
     expect(typeof result.items[0].id).toBe("string");
     expect(() => JSON.stringify(result.items[0])).not.toThrow();
+  });
+
+  it("filters by entityId and by a from/to date range", async () => {
+    const actor = await createActor("Admin Actor Audit Range");
+    const department = await prisma.department.create({
+      data: {
+        key: `test-dept-${randomUUID().slice(0, 8)}`,
+        name: "Test Dept 2",
+      },
+    });
+    createdDepartmentIds.push(department.id);
+    const policy = await createSlaPolicy(
+      {
+        name: `Audit Range Probe ${randomUUID().slice(0, 8)}`,
+        departmentId: department.id,
+        durationMinutes: 30,
+        warningThresholdPercent: 75,
+        businessHoursOnly: false,
+        isActive: true,
+      },
+      actor.id,
+    );
+    createdSlaPolicyIds.push(policy.id);
+
+    const byEntityId = await listAuditLogs({
+      action: "SLA_POLICY_CREATED",
+      entityId: policy.id,
+      page: 1,
+      pageSize: 10,
+    });
+    expect(byEntityId.items).toHaveLength(1);
+
+    const future = new Date(Date.now() + 60_000);
+    const outsideRange = await listAuditLogs({
+      entityId: policy.id,
+      from: future,
+      page: 1,
+      pageSize: 10,
+    });
+    expect(outsideRange.items).toHaveLength(0);
+
+    const past = new Date(Date.now() - 60_000);
+    const insideRange = await listAuditLogs({
+      entityId: policy.id,
+      from: past,
+      to: future,
+      page: 1,
+      pageSize: 10,
+    });
+    expect(insideRange.items).toHaveLength(1);
+  });
+
+  it("listAuditLogsForExport returns matching rows unpaginated, ready for CSV", async () => {
+    const actor = await createActor("Admin Actor Audit Export");
+    const department = await prisma.department.create({
+      data: {
+        key: `test-dept-${randomUUID().slice(0, 8)}`,
+        name: "Test Dept 3",
+      },
+    });
+    createdDepartmentIds.push(department.id);
+    const policy = await createSlaPolicy(
+      {
+        name: `Audit Export Probe ${randomUUID().slice(0, 8)}`,
+        departmentId: department.id,
+        durationMinutes: 30,
+        warningThresholdPercent: 75,
+        businessHoursOnly: false,
+        isActive: true,
+      },
+      actor.id,
+    );
+    createdSlaPolicyIds.push(policy.id);
+
+    const rows = await listAuditLogsForExport({ entityId: policy.id });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].action).toBe("SLA_POLICY_CREATED");
+    expect(typeof rows[0].id).toBe("string");
   });
 });
 

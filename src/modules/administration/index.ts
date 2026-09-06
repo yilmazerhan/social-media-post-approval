@@ -83,7 +83,11 @@ export {
   runJobScheduleNow,
   type ListJobsFilters,
 } from "./jobs";
-export { listAuditLogs, type ListAuditLogsFilters } from "./audit";
+export {
+  listAuditLogs,
+  listAuditLogsForExport,
+  type AuditLogFilters,
+} from "./audit";
 export { listWorkflowTransitions } from "./workflow";
 export {
   listNotificationVolumeSummary,

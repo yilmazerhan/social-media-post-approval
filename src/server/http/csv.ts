@@ -3,7 +3,8 @@
  * a formula-injection guard on leading `= + - @` characters." SECURITY.md's
  * control table spells out the exact guard: leading `= + - @ \t \r` get a
  * `'` prefix, the standard mitigation for a spreadsheet app treating an
- * exported cell as a formula.
+ * exported cell as a formula. Shared by every CSV-exporting route (reports,
+ * audit logs) — one guard, not one per feature.
  */
 const DANGEROUS_LEADING_CHARS = ["=", "+", "-", "@", "\t", "\r"];
 

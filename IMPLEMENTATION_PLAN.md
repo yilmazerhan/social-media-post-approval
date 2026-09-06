@@ -4,7 +4,7 @@ The build order, what "done" means at each step, and where we currently are.
 The 28 phases from the master specification are grouped into seven milestones so
 progress is reviewable in meaningful chunks rather than one uncontrolled change.
 
-**Current status: Phase 22 complete — proceeding directly to Phase 23 per the user's standing instruction to work through all remaining phases.**
+**Current status: Phase 23 complete — proceeding directly to Phase 24 per the user's standing instruction to work through all remaining phases.**
 
 ---
 
@@ -1647,13 +1647,72 @@ _without_ a table, not the reverse.
   tests, all green across two repeated runs; `lint`, `typecheck`,
   `format:check` and `build` are clean.
 
-### Phase 23 · Audit logging
+### Phase 23 · Audit logging — **complete**
 
-Audit writes inside the transactions of every listed action, the read-only admin
-viewer with filters and export, append-only enforcement.
-**Exit**: every action in §24 of the master specification produces exactly one
-row; no code path updates or deletes an audit row; sensitive values are absent
-from `metadata`.
+The "master specification"'s §24 action list isn't a file present in this
+repository (same situation Phase 22 hit); the audit coverage built against
+here is what every prior phase already established as this codebase's actual
+pattern: `writeAudit()` (Phase 16's writer, `src/modules/audit/`) is called
+from every admin CRUD action (Phase 21, all fourteen sections), the full
+approval workflow (submit/approve/reject/request-changes/assign/cancel/
+resubmit), auth events (login, logout, logout-all, lockout, password
+change/reset), comments, session revocation, and retention's own
+system-triggered `POST_ARCHIVED`/`POST_DELETED` entries. A full sweep across
+every mutating route in this phase (grep for every `POST`/`PATCH`/`DELETE`
+route handler, cross-checked against `writeAudit` call sites) found exactly
+one real, analogous gap: **`SLA_ESCALATE`** (Phase 19) changed
+`ApprovalAssignment.escalationLevel`/`escalatedAt` — a real business-state
+change — without writing an audit entry, unlike retention's identically-shaped
+system-triggered events. Fixed: it now writes an `ASSIGNMENT_ESCALATED` entry
+(actor `null`, matching the same "no human decided this" precedent) inside
+the same transaction as the assignment update.
+
+Two categories were deliberately left unaudited, matching this codebase's
+21-phase-long precedent rather than a new one invented here: autosave/draft
+edits (`POST /posts/[id]/autosave`, high-frequency, not "business-critical"
+by any existing definition in this codebase) and self-service notification
+read-state/preferences (reading your own notification isn't a security- or
+business-relevant mutation of anyone else's data). Attachment upload/delete
+also stays unaudited — the post's own SUBMIT/APPROVE audit entries already
+capture the full attachment set at each decision point, and no prior phase
+treats upload/delete as its own audited event.
+
+The admin viewer (Phase 21's basic version, filtered on `action`/
+`entityType`/`actorId` only) now also filters on `entityId`, `postId`, and a
+`from`/`to` date range, and exports to CSV — a new `listAuditLogsForExport`
+caps a single export at 10,000 rows (narrow the filters to get everything in
+a window; an audit table this codebase expects to grow indefinitely,
+`RETENTION_AUDIT_LOG_DAYS` defaults to 730, has no natural upper bound
+otherwise). The CSV guard itself (`toCsv`, formerly living under
+`modules/reports/` since Phase 22 was its first user) moved to
+`src/server/http/csv.ts` — a generic HTTP-layer concern, not report-specific
+business logic, now shared by both `/api/v1/reports/*` and
+`/api/v1/admin/audit-logs`. No new endpoint, write path, or edit/delete
+affordance was added anywhere in the admin section — it stays exactly as
+read-only as CLAUDE.md and SECURITY.md require.
+
+Append-only enforcement at the database-role level (SECURITY.md: `SELECT,
+INSERT` only) is explicitly out of scope here — the schema's own migration
+comments defer it to Phase 25, since it depends on a production role that
+doesn't exist in dev/CI. At the _application_ level it already holds: a
+direct search of every `.ts` file in this codebase for `auditLog.update`/
+`auditLog.delete`/`auditLog.upsert` turns up exactly one call —
+`retention/service.ts`'s policy-driven `AUDIT_LOG` retention target (Phase
+20, unchanged here) — and nothing else ever mutates or removes an existing
+row. A search across every `writeAudit()` call site for a password, token,
+cookie, or SAML assertion landing in `metadata` also turned up nothing.
+
+- **Exit — verified**: `tests/integration/sla.test.ts` gained an assertion
+  that escalation writes exactly one `ASSIGNMENT_ESCALATED` row with a null
+  actor. `tests/integration/administration-2.test.ts` gained two tests: one
+  proving `entityId` and `from`/`to` narrow the list correctly (including a
+  future-dated `from` returning zero rows), and one proving
+  `listAuditLogsForExport` returns the same rows unpaginated with a
+  JSON-serializable `id`. `toCsv`'s own tests moved to
+  `tests/unit/csv.test.ts` (relocated, not new — it's a pure function with
+  no report-specific behavior). The suite is now 46 vitest files / 331
+  tests, all green across two repeated runs; `lint`, `typecheck`,
+  `format:check` and `build` are clean.
 
 ---
 

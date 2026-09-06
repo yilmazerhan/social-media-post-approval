@@ -19,6 +19,7 @@ interface AuditLogDto {
   action: string;
   entityType: string;
   entityId: string | null;
+  postId: string | null;
   createdAt: string;
 }
 
@@ -29,22 +30,29 @@ export function AuditLogsSection() {
 
   const [actionFilter, setActionFilter] = useState("");
   const [entityTypeFilter, setEntityTypeFilter] = useState("");
+  const [entityIdFilter, setEntityIdFilter] = useState("");
   const [actorIdFilter, setActorIdFilter] = useState("");
+  const [fromFilter, setFromFilter] = useState("");
+  const [toFilter, setToFilter] = useState("");
 
-  async function load(filters?: {
-    action?: string;
-    entityType?: string;
-    actorId?: string;
-  }) {
+  function buildFilterParams() {
+    const params = new URLSearchParams();
+    if (actionFilter) params.set("action", actionFilter);
+    if (entityTypeFilter) params.set("entityType", entityTypeFilter);
+    if (entityIdFilter) params.set("entityId", entityIdFilter);
+    if (actorIdFilter) params.set("actorId", actorIdFilter);
+    if (fromFilter)
+      params.set("from", new Date(`${fromFilter}T00:00:00.000Z`).toISOString());
+    if (toFilter)
+      params.set("to", new Date(`${toFilter}T23:59:59.999Z`).toISOString());
+    return params;
+  }
+
+  async function load() {
     setError(null);
     try {
-      const params = new URLSearchParams({ pageSize: "100" });
-      const action = filters?.action ?? actionFilter;
-      const entityType = filters?.entityType ?? entityTypeFilter;
-      const actorId = filters?.actorId ?? actorIdFilter;
-      if (action) params.set("action", action);
-      if (entityType) params.set("entityType", entityType);
-      if (actorId) params.set("actorId", actorId);
+      const params = buildFilterParams();
+      params.set("pageSize", "100");
       const data = await getJson<AuditLogDto[]>(
         `/api/v1/admin/audit-logs?${params.toString()}`,
       );
@@ -53,6 +61,12 @@ export function AuditLogsSection() {
       setError(err instanceof ApiError ? err.message : "Something went wrong.");
     }
   }
+
+  const exportHref = (() => {
+    const params = buildFilterParams();
+    params.set("format", "csv");
+    return `/api/v1/admin/audit-logs?${params.toString()}`;
+  })();
 
   useEffect(() => {
     load();
@@ -84,7 +98,12 @@ export function AuditLogsSection() {
 
   return (
     <div className="space-y-4">
-      <h2 className="text-lg font-semibold">Audit logs</h2>
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="text-lg font-semibold">Audit logs</h2>
+        <Button asChild variant="outline" size="sm">
+          <a href={exportHref}>Export CSV</a>
+        </Button>
+      </div>
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -111,11 +130,37 @@ export function AuditLogsSection() {
           />
         </div>
         <div className="space-y-1.5">
+          <Label htmlFor="audit-filter-entity-id">Entity id</Label>
+          <Input
+            id="audit-filter-entity-id"
+            value={entityIdFilter}
+            onChange={(e) => setEntityIdFilter(e.target.value)}
+          />
+        </div>
+        <div className="space-y-1.5">
           <Label htmlFor="audit-filter-actor">Actor id</Label>
           <Input
             id="audit-filter-actor"
             value={actorIdFilter}
             onChange={(e) => setActorIdFilter(e.target.value)}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="audit-filter-from">From</Label>
+          <Input
+            id="audit-filter-from"
+            type="date"
+            value={fromFilter}
+            onChange={(e) => setFromFilter(e.target.value)}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="audit-filter-to">To</Label>
+          <Input
+            id="audit-filter-to"
+            type="date"
+            value={toFilter}
+            onChange={(e) => setToFilter(e.target.value)}
           />
         </div>
         <Button type="submit" variant="outline">
