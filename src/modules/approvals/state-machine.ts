@@ -31,6 +31,11 @@ const TRANSITIONS: readonly Transition[] = [
   { from: "CHANGES_REQUESTED", action: "RESUBMIT", to: "SUBMITTED" },
 ];
 
+/** Read-only view of the legal-transition table, for the admin "Workflow" section (API.md's `GET /admin/workflow-transitions`) — never a second source of truth, just a listing of this one. */
+export function listTransitions(): readonly Transition[] {
+  return TRANSITIONS;
+}
+
 /** Returns the resulting status, or throws `WorkflowError("INVALID_TRANSITION")` if the pair isn't in the table. */
 export function assertLegalTransition(
   from: PostStatus,

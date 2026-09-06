@@ -6,7 +6,7 @@ export const POST = protectedHandler<
   ReturnType<typeof sendTestEmailSchema.parse>,
   undefined
 >(
-  { schema: sendTestEmailSchema, permission: "SETTINGS_MANAGE" },
+  { schema: sendTestEmailSchema, permission: "EMAIL_MANAGE" },
   async ({ input }) => {
     await sendTestEmail(input.to);
     return { data: { success: true }, status: 202 };

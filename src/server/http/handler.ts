@@ -74,6 +74,22 @@ export class CommentRequiredError extends Error {
   }
 }
 
+/** API.md's `409 PROVIDER_MISMATCH` — an action that only makes sense for one `authProvider` (e.g. admin password reset, LOCAL-only) attempted against the other. */
+export class ProviderMismatchError extends Error {
+  constructor(
+    message = "This action isn't available for this account's sign-in provider.",
+  ) {
+    super(message);
+  }
+}
+
+/** A password that fails `checkPasswordPolicy` — reusable outside `auth/local`'s own self-service flows (e.g. an admin-triggered reset) which have their own identically-shaped error and don't go through this wrapper. */
+export class PasswordPolicyError extends Error {
+  constructor(public readonly violations: string[]) {
+    super("Password does not meet policy.");
+  }
+}
+
 export interface RouteContext {
   params: Promise<Record<string, string>>;
 }
@@ -254,6 +270,17 @@ export function protectedHandler<TInput = undefined, TResource = undefined>(
         return jsonError(422, "COMMENT_REQUIRED", err.message, [
           { field: err.field, message: "Required." },
         ]);
+      }
+      if (err instanceof ProviderMismatchError) {
+        return jsonError(409, "PROVIDER_MISMATCH", err.message);
+      }
+      if (err instanceof PasswordPolicyError) {
+        return jsonError(
+          422,
+          "VALIDATION_FAILED",
+          err.message,
+          err.violations.map((message) => ({ field: "newPassword", message })),
+        );
       }
       logger.error({ err }, "Unhandled error in protected handler");
       return jsonError(500, "INTERNAL_ERROR", "Something went wrong.");

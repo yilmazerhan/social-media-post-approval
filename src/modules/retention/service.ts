@@ -6,15 +6,24 @@
  * run acts on exactly those candidates and records one `RetentionRun` row
  * either way.
  *
- * **POST is archived, not hard-deleted.** ARCHITECTURE.md's own state
- * diagram names `ARCHIVED` as a real `PostStatus` "reachable from any
- * terminal state via retention," and `Post.archivedAt` exists for exactly
- * this — a business record with legal/audit significance ("Approval
- * binds to a version," CLAUDE.md) gets moved out of the way, not erased.
- * This transition intentionally isn't in `state-machine.ts`'s
- * `ApprovalAction`-logged table (there's no human decision to log, and
- * `ApprovalActionType` has no ARCHIVE value) — it's recorded as a plain
- * `AuditLog` entry instead, actor `null` (a system event).
+ * **POST retention is two-stage: archive, then — a full `retentionDays`
+ * later — hard-delete.** ARCHITECTURE.md's state diagram names `ARCHIVED`
+ * as a real `PostStatus` "reachable from any terminal state via
+ * retention," and DATABASE.md §8's referential-integrity table says
+ * outright "PostVersion → Post: CASCADE (retention deletes the post)" —
+ * both are true at once because they're two different ages of the same
+ * post. Stage 1: a decided post (`APPROVED`/`REJECTED`/`CANCELLED`) past
+ * `retentionDays` since `decidedAt` moves to `ARCHIVED` with `archivedAt`
+ * set — not in `state-machine.ts`'s `ApprovalAction`-logged table (no
+ * human decision to log, and `ApprovalActionType` has no ARCHIVE value),
+ * recorded as a plain `AuditLog` entry instead, actor `null`. Stage 2: an
+ * already-`ARCHIVED` post past the *same* `retentionDays` window since
+ * `archivedAt` is genuinely `prisma.post.delete()`d — the schema's own
+ * `Cascade` chain (`PostVersion`, `ApprovalAssignment`, `ApprovalAction`,
+ * `Comment`, ...) removes everything under it, while `EmailLog.postId`
+ * and `AuditLog.postId` are deliberately *not* Prisma relations
+ * ("email/audit history may outlive the post") and are left as plain,
+ * now-dangling identifiers rather than nulled or cascaded.
  *
  * **ATTACHMENT reports zero candidates here.** Phase 9's
  * `ORPHAN_ATTACHMENT_CLEANUP` job already owns attachment cleanup, and
@@ -24,7 +33,11 @@
  * violate "an attachment referenced by any version is never removed";
  * this target intentionally stays a no-op instead.
  */
-import type { RetentionTarget, JobStatus } from "@/generated/prisma/client";
+import type {
+  RetentionTarget,
+  JobStatus,
+  Prisma,
+} from "@/generated/prisma/client";
 import { prisma } from "@/server/db";
 import { writeAudit } from "@/modules/audit";
 
@@ -37,11 +50,17 @@ export interface RetentionTargetResult {
   error: string | null;
 }
 
+interface TargetOutcome {
+  candidateCount: number;
+  deletedCount: number;
+  details?: Record<string, unknown>;
+}
+
 async function countAndMaybeDelete(
   count: () => Promise<number>,
   deleteMany: () => Promise<number>,
   dryRun: boolean,
-): Promise<{ candidateCount: number; deletedCount: number }> {
+): Promise<TargetOutcome> {
   const candidateCount = await count();
   if (dryRun || candidateCount === 0) {
     return { candidateCount, deletedCount: 0 };
@@ -54,7 +73,7 @@ async function runForTarget(
   target: RetentionTarget,
   cutoff: Date,
   dryRun: boolean,
-): Promise<{ candidateCount: number; deletedCount: number }> {
+): Promise<TargetOutcome> {
   switch (target) {
     case "AUDIT_LOG":
       return countAndMaybeDelete(
@@ -129,17 +148,32 @@ async function runForTarget(
       return { candidateCount: 0, deletedCount: 0 };
 
     case "POST": {
-      const candidates = await prisma.post.findMany({
+      const archiveCandidates = await prisma.post.findMany({
         where: {
           status: { in: ["APPROVED", "REJECTED", "CANCELLED"] },
           OR: [{ decidedAt: { lt: cutoff } }, { updatedAt: { lt: cutoff } }],
         },
         select: { id: true },
       });
-      if (dryRun) return { candidateCount: candidates.length, deletedCount: 0 };
+      const deleteCandidates = await prisma.post.findMany({
+        where: { status: "ARCHIVED", archivedAt: { lt: cutoff } },
+        select: { id: true },
+      });
+      const candidateCount = archiveCandidates.length + deleteCandidates.length;
+
+      if (dryRun) {
+        return {
+          candidateCount,
+          deletedCount: 0,
+          details: {
+            toArchive: archiveCandidates.length,
+            toDelete: deleteCandidates.length,
+          },
+        };
+      }
 
       let archived = 0;
-      for (const candidate of candidates) {
+      for (const candidate of archiveCandidates) {
         await prisma.$transaction(async (tx) => {
           await tx.post.update({
             where: { id: candidate.id },
@@ -157,7 +191,27 @@ async function runForTarget(
         });
         archived++;
       }
-      return { candidateCount: candidates.length, deletedCount: archived };
+
+      // A hard delete: writeAudit's own postId FK is deliberately not a
+      // Prisma relation ("audit history must survive post deletion"), so
+      // this audit entry is written first and simply outlives the row.
+      let deleted = 0;
+      for (const candidate of deleteCandidates) {
+        await writeAudit({
+          action: "POST_DELETED",
+          entityType: "Post",
+          entityId: candidate.id,
+          postId: candidate.id,
+        });
+        await prisma.post.delete({ where: { id: candidate.id } });
+        deleted++;
+      }
+
+      return {
+        candidateCount,
+        deletedCount: archived + deleted,
+        details: { archived, deleted },
+      };
     }
   }
 }
@@ -179,13 +233,13 @@ export async function runRetentionForTarget(
 
   let candidateCount = 0;
   let deletedCount = 0;
+  let details: Record<string, unknown> = {};
   let error: string | null = null;
   try {
-    ({ candidateCount, deletedCount } = await runForTarget(
-      target,
-      cutoff,
-      dryRun,
-    ));
+    const outcome = await runForTarget(target, cutoff, dryRun);
+    candidateCount = outcome.candidateCount;
+    deletedCount = outcome.deletedCount;
+    details = outcome.details ?? {};
   } catch (err) {
     error = err instanceof Error ? err.message : String(err);
   }
@@ -200,7 +254,7 @@ export async function runRetentionForTarget(
       deletedCount,
       skippedCount: 0,
       error,
-      details: {},
+      details: details as Prisma.InputJsonValue,
     },
   });
   if (!dryRun && !error) {

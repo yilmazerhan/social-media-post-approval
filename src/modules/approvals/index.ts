@@ -35,7 +35,7 @@ export {
   type ApprovalReviewDto,
   type ApprovalReviewHeader,
 } from "./review";
-export { assertLegalTransition } from "./state-machine";
+export { assertLegalTransition, listTransitions } from "./state-machine";
 export {
   startReview,
   approvePost,

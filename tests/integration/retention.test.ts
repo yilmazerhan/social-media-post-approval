@@ -172,6 +172,85 @@ describe("POST retention", () => {
   });
 });
 
+describe("POST retention — stage 2", () => {
+  it("hard-deletes an already-archived post past the same retentionDays window, cascading its version, while its audit trail (written first) survives with a now-dangling postId", async () => {
+    const creator = await createUser("Retention Post Stage2 Creator");
+    const archivedPost = await prisma.post.create({
+      data: {
+        reference: `RET-${randomUUID().slice(0, 8)}`,
+        title: "Long-archived post",
+        creatorId: creator.id,
+        status: "ARCHIVED",
+        decidedAt: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000),
+        archivedAt: new Date(Date.now() - 40 * 24 * 60 * 60 * 1000),
+      },
+    });
+    const version = await prisma.postVersion.create({
+      data: {
+        postId: archivedPost.id,
+        versionNumber: 1,
+        title: archivedPost.title,
+        contentJson: {},
+        contentHtml: "<p></p>",
+        contentText: "",
+        characterCount: 0,
+        wordCount: 0,
+        createdById: creator.id,
+      },
+    });
+    const recentlyArchivedPost = await prisma.post.create({
+      data: {
+        reference: `RET-${randomUUID().slice(0, 8)}`,
+        title: "Recently archived post",
+        creatorId: creator.id,
+        status: "ARCHIVED",
+        decidedAt: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000),
+        archivedAt: new Date(),
+      },
+    });
+
+    try {
+      await withNarrowedPolicy("POST", { retentionDays: 30 }, async () => {
+        const dryRunResult = await runRetentionForTarget("POST", true);
+        expect(dryRunResult?.deletedCount).toBe(0);
+        const stillArchived = await prisma.post.findUniqueOrThrow({
+          where: { id: archivedPost.id },
+        });
+        expect(stillArchived.status).toBe("ARCHIVED");
+
+        await runRetentionForTarget("POST", false);
+
+        const deletedPost = await prisma.post.findUnique({
+          where: { id: archivedPost.id },
+        });
+        expect(deletedPost).toBeNull();
+        const deletedVersion = await prisma.postVersion.findUnique({
+          where: { id: version.id },
+        });
+        expect(deletedVersion).toBeNull();
+
+        const stillThere = await prisma.post.findUniqueOrThrow({
+          where: { id: recentlyArchivedPost.id },
+        });
+        expect(stillThere.status).toBe("ARCHIVED");
+
+        const auditEntry = await prisma.auditLog.findFirst({
+          where: { action: "POST_DELETED", entityId: archivedPost.id },
+        });
+        expect(auditEntry).not.toBeNull();
+        expect(auditEntry?.postId).toBe(archivedPost.id);
+      });
+    } finally {
+      await prisma.post.deleteMany({
+        where: { id: recentlyArchivedPost.id },
+      });
+      await prisma.auditLog.deleteMany({
+        where: { entityId: archivedPost.id },
+      });
+    }
+  });
+});
+
 describe("ATTACHMENT retention", () => {
   it("never reports or removes anything — attachment cleanup stays Phase 9's job alone", async () => {
     const dryRunResult = await runRetentionForTarget("ATTACHMENT", true);
