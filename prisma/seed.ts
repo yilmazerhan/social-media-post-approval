@@ -13,6 +13,7 @@ import { config } from "@/server/config";
 import { prisma } from "@/server/db";
 import { hashPassword } from "@/modules/auth/local";
 import { bootstrapSystemData } from "./lib/bootstrap-system-data";
+import { ensureHeroAttachmentFiles } from "./lib/seed-media";
 
 const DEPARTMENTS = [
   { key: "marketing", name: "Marketing" },
@@ -83,6 +84,10 @@ async function seedHeroPost(params: {
   const reference = `POST-${new Date().getFullYear()}-000001`;
   const existing = await prisma.post.findUnique({ where: { reference } });
   if (existing) {
+    // Self-heals a data/uploads wiped independently of the database (or
+    // a first fix-forward run against a DB that already has the post).
+    await ensureHeroAttachmentFiles(existing.id);
+
     // The hero post itself is created once — PostVersion rows are
     // immutable (ADR-006) and never rewritten on a later seed run. But
     // "due in 6h, warning already elapsed" was computed relative to
@@ -200,6 +205,8 @@ async function seedHeroPost(params: {
       lockVersion: { increment: 1 },
     },
   });
+
+  await ensureHeroAttachmentFiles(post.id);
 
   const image = await prisma.attachment.create({
     data: {
