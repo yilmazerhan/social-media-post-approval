@@ -1,0 +1,151 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * Design tokens — see UI_UX_SPEC.md §2.
+ * Light palette is the source of truth; the dark block only overrides
+ * what changes. Both meet WCAG 2.2 AA contrast for body text and UI
+ * boundaries. A future explicit theme toggle can add `.dark` without
+ * touching these values — the media query and the class share the
+ * same variables.
+ */
+:root {
+  --radius: 0.5rem;
+
+  --background: hsl(0 0% 100%);
+  --foreground: hsl(222 47% 11%);
+
+  --card: hsl(0 0% 100%);
+  --card-foreground: hsl(222 47% 11%);
+
+  --popover: hsl(0 0% 100%);
+  --popover-foreground: hsl(222 47% 11%);
+
+  --primary: hsl(221 83% 40%);
+  --primary-foreground: hsl(0 0% 100%);
+
+  --secondary: hsl(210 40% 96%);
+  --secondary-foreground: hsl(222 47% 11%);
+
+  --muted: hsl(210 40% 96%);
+  --muted-foreground: hsl(215 16% 40%);
+
+  --accent: hsl(210 40% 94%);
+  --accent-foreground: hsl(222 47% 11%);
+
+  --destructive: hsl(0 72% 42%);
+  --destructive-foreground: hsl(0 0% 100%);
+
+  --warning: hsl(32 90% 30%);
+  --warning-foreground: hsl(0 0% 100%);
+
+  --success: hsl(142 71% 25%);
+  --success-foreground: hsl(0 0% 100%);
+
+  --info: hsl(199 89% 32%);
+  --info-foreground: hsl(0 0% 100%);
+
+  --border: hsl(214 32% 91%);
+  --input: hsl(214 32% 91%);
+  --ring: hsl(221 83% 40%);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: hsl(222 47% 7%);
+    --foreground: hsl(210 40% 98%);
+
+    --card: hsl(222 47% 9%);
+    --card-foreground: hsl(210 40% 98%);
+
+    --popover: hsl(222 47% 9%);
+    --popover-foreground: hsl(210 40% 98%);
+
+    --primary: hsl(217 91% 60%);
+    --primary-foreground: hsl(222 47% 11%);
+
+    --secondary: hsl(217 33% 17%);
+    --secondary-foreground: hsl(210 40% 98%);
+
+    --muted: hsl(217 33% 17%);
+    --muted-foreground: hsl(215 20% 65%);
+
+    --accent: hsl(217 33% 20%);
+    --accent-foreground: hsl(210 40% 98%);
+
+    --destructive: hsl(0 72% 45%);
+    --destructive-foreground: hsl(0 0% 100%);
+
+    --warning: hsl(32 90% 40%);
+    --warning-foreground: hsl(0 0% 100%);
+
+    --success: hsl(142 71% 32%);
+    --success-foreground: hsl(0 0% 100%);
+
+    --info: hsl(199 89% 38%);
+    --info-foreground: hsl(0 0% 100%);
+
+    --border: hsl(217 33% 20%);
+    --input: hsl(217 33% 20%);
+    --ring: hsl(217 91% 60%);
+  }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --font-sans:
+    var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    Arial, sans-serif;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}

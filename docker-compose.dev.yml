@@ -1,0 +1,26 @@
+########################################################################
+# Local development only — brings up just PostgreSQL 16 so `npm run dev`
+# and `npm run worker` have a database to talk to. The production
+# topology (app, worker, postgres, nginx) is docker-compose.yml, added
+# in Phase 27. See DEPLOYMENT.md.
+########################################################################
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ca
+      POSTGRES_PASSWORD: ca_dev_password
+      POSTGRES_DB: content_approval
+    ports:
+      - "5432:5432"
+    volumes:
+      - ca-dev-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ca -d content_approval"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  ca-dev-pgdata:
