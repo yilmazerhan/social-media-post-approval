@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
 import { readSeededPassword, login } from "./support/demo-accounts";
 
 /** The card (or health tile) whose text includes `label` — every Card sets `data-slot="card"`. */
@@ -84,5 +85,17 @@ test.describe("Dashboard", () => {
       has: page.getByText("Storage", { exact: true }),
     });
     await expect(storageTile.getByText("Down")).not.toBeVisible();
+  });
+
+  test("has no automatically detectable accessibility violations", async ({
+    page,
+  }) => {
+    await login(page, "john.doe@example.local", password);
+    await expect(
+      page.getByRole("heading", { name: "Dashboard" }),
+    ).toBeVisible();
+
+    const results = await new AxeBuilder({ page }).include("body").analyze();
+    expect(results.violations).toEqual([]);
   });
 });

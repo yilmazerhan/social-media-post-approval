@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
 import { readSeededPassword, login } from "./support/demo-accounts";
 import { deletePostByTitle } from "./support/db-cleanup";
 
@@ -71,5 +72,19 @@ test.describe("Notifications", () => {
     await expect(page.getByText(`Approved: ${TITLE}`)).toBeVisible();
     await page.getByRole("button", { name: "Mark all as read" }).click();
     await expect(page.getByText("No notifications here.")).toBeVisible();
+  });
+
+  test("has no automatically detectable accessibility violations", async ({
+    page,
+  }) => {
+    const password = readSeededPassword();
+    await login(page, "john.doe@example.local", password);
+    await page.goto("/notifications");
+    await expect(
+      page.getByRole("heading", { name: "Notifications" }),
+    ).toBeVisible();
+
+    const results = await new AxeBuilder({ page }).include("body").analyze();
+    expect(results.violations).toEqual([]);
   });
 });

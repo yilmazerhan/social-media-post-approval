@@ -1,6 +1,8 @@
 import { ShieldCheck } from "lucide-react";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getServerSessionContext } from "@/server/http/request-context";
+import { Button } from "@/components/ui/button";
 
 export default async function Home() {
   const sessionContext = await getServerSessionContext();
@@ -13,10 +15,12 @@ export default async function Home() {
       <ShieldCheck className="text-primary size-10" aria-hidden />
       <h1 className="text-2xl font-semibold">Content Approval</h1>
       <p className="text-muted-foreground max-w-md text-sm">
-        Internal content creation, versioning and approval platform. The
-        application shell and screens are built out phase by phase — see
-        IMPLEMENTATION_PLAN.md.
+        Draft, review and approve social media and corporate content, with a
+        clear record of every decision.
       </p>
+      <Button asChild>
+        <Link href="/login">Sign in</Link>
+      </Button>
     </main>
   );
 }

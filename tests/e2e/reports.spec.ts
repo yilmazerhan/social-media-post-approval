@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
 import { readSeededPassword, login } from "./support/demo-accounts";
 
 /**
@@ -58,5 +59,18 @@ test.describe("Reports", () => {
       summaryCard.getByRole("link", { name: "Export CSV" }).click(),
     ]);
     expect(download.suggestedFilename()).toBe("summary.csv");
+  });
+
+  test("has no automatically detectable accessibility violations", async ({
+    page,
+  }) => {
+    const password = readSeededPassword();
+    await login(page, "admin@example.local", password);
+    await page.goto("/reports");
+    await expect(page.getByRole("heading", { name: "Reports" })).toBeVisible();
+    await expect(reportCard(page, "Volume by decision")).toBeVisible();
+
+    const results = await new AxeBuilder({ page }).include("body").analyze();
+    expect(results.violations).toEqual([]);
   });
 });

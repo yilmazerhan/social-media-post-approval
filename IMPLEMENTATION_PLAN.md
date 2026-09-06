@@ -4,7 +4,12 @@ The build order, what "done" means at each step, and where we currently are.
 The 28 phases from the master specification are grouped into seven milestones so
 progress is reviewable in meaningful chunks rather than one uncontrolled change.
 
-**Current status: Phase 27 complete — proceeding directly to Phase 28 per the user's standing instruction to work through all remaining phases.**
+**Current status: all 28 phases complete.** Two known gaps remain outside the
+28-phase plan as written (flagged repeatedly, Phases 26–28, never in scope
+for any single phase): the `/posts` "My Posts" list page is still the
+`ComingSoon` placeholder, and `prisma/seed.ts` doesn't write the physical
+files its own `Attachment` rows reference. Both need their own follow-up
+work, at the user's discretion.
 
 ---
 
@@ -2122,11 +2127,98 @@ green twice in a row: 48 files / 343 tests (up from 337 — the new
 the full Playwright suite green except the one pre-existing, unrelated
 failure above.
 
-### Phase 28 · Final UX polish
+### Phase 28 · Final UX polish — **complete**
 
-Empty and error states everywhere, loading skeletons, keyboard shortcuts,
-copy pass, accessibility sweep, performance check on the two hero screens.
-**Exit**: the acceptance criteria in §45 of the master specification are all met.
+Same situation as Phase 26's "§37": the master specification's "§45
+acceptance criteria" were never delivered as a repo file, so this checks
+against what the delivered docs actually specify — UI_UX_SPEC.md §7's
+loading/empty/error/toast/confirmation states, §9's accessibility target,
+and this phase's own line items.
+
+**Loading skeletons**: only `dashboard/loading.tsx` existed beforehand,
+despite UI_UX_SPEC.md §7 explicitly asking for "route-level `loading.tsx`
+for each section." Added the missing nine, each shaped to its own screen
+rather than a generic spinner: `posts/[id]` (header + tabs), `posts/[id]/edit`
+(two-column editor layout), `approvals` (filter bar + rows), `approvals/[postId]`
+(two-column review layout), `notifications`/`account/sessions` (list rows),
+`reports` (stat cards + chart), `admin` (tab bar + table), `posts/new` (a
+light one — this route only creates a draft and redirects). `posts/page.tsx`
+itself is skipped: it's the `ComingSoon` placeholder with no data fetch of
+its own, so neither a loading nor error state has anything to cover.
+
+**Error states**: same gap, same fix — nine new route-level `error.tsx`
+boundaries alongside the existing `dashboard/error.tsx`, all using the
+existing `ErrorState` component. Also wired `error.digest` through as
+`traceId` everywhere (including retrofitting `dashboard/error.tsx`, which
+had the prop typed but never read it) — UI_UX_SPEC.md §7 asks for a trace
+reference a user can quote to support, and the digest is what Next.js's own
+server-side error log correlates back to the real error.
+
+**Empty states**: audited rather than rebuilt — already broad coverage
+(`DataTable` itself renders one when empty, plus dedicated ones across every
+admin section, reports card, the dashboard, comments, and both hero screens).
+No gap found worth a new component.
+
+**Keyboard shortcuts**: UI_UX_SPEC.md never actually specifies a shortcuts
+palette — §9's "keyboard shortcuts" language is "full keyboard operability,
+visible high-contrast focus rings everywhere," already delivered via Radix
+primitives' built-in dialog/menu/tab focus-trapping since Phase 6. Interpreted
+that way rather than inventing a shortcuts feature with no specification
+behind it, matching CLAUDE.md's "no abstractions/scope beyond what's asked."
+
+**Copy pass**: grepped the whole app for leftover placeholder text. Found
+one real instance: `src/app/page.tsx`, the unauthenticated landing page,
+still read "the application shell and screens are built out phase by
+phase — see IMPLEMENTATION_PLAN.md" — an internal planning document named
+directly in copy a real visitor would see, and the page had no way to
+actually reach `/login` short of typing the URL. Rewrote the copy and added
+a Sign in button.
+
+**Accessibility sweep**: axe coverage already reached the shell, both hero
+screens, the queue, and the tables (Phases 6/13/14/21/22/26); added it to
+the three remaining major screens that had none — dashboard, notifications,
+reports. All three pass with zero violations.
+
+**Performance check, the two hero screens**: `/posts/[id]/edit` (Editor) is
+139 kB own / 441 kB first load — the heaviest page in the app by a wide
+margin, as expected for a Tiptap-based rich text editor with its own
+toolbar and extensions; `/approvals/[postId]` (Approval Review) is a much
+lighter 12.4 kB / 306 kB. No other page comes close to the editor's size,
+so it was the one worth looking at: its bulk is the rich-text editor itself
+(needed immediately, not a deferral candidate) and `MediaUploader` (not
+obviously large enough on its own to justify `next/dynamic` without an
+actual bundle-analyzer measurement to confirm real benefit, which this
+sandbox doesn't have tooling for). Didn't speculatively lazy-load anything
+without a way to measure whether it helped — CLAUDE.md's "no abstractions
+without justified benefit."
+
+**Known gaps, outside all 28 phases, flagged one last time now that there's
+no further phase to defer them to**:
+
+1. `/posts` ("My Posts") is still the `ComingSoon` placeholder from Phase 6
+   — a real, UI_UX_SPEC.md §6-specified DataTable screen (7 tabs, 8 columns,
+   filters, sorting, pagination) that neither Phase 9 nor 10 built despite
+   their own retrospectives claiming "the rest of the post lifecycle,"
+   flagged again in Phases 26 and 27. It needs a scoped piece of work
+   comparable to Phase 13 or 22, not something that fits under "final
+   polish."
+2. `prisma/seed.ts` records `Attachment` rows for the hero post's image and
+   video (with `storageKey`/`thumbnailKey` paths under
+   `data/uploads/seed/<postId>/`) but never actually writes those files —
+   confirmed by grepping the whole script for any `writeFile`/`sharp`/
+   `ffmpeg` call and finding none. In an environment where those files were
+   never separately placed (this sandbox, apparently, and possibly any
+   fresh clone), a request for the video thumbnail 500s; that's the real
+   cause of `shell.spec.ts`'s one still-failing tablet-breakpoint test
+   (Next's dev-mode error overlay it triggers intercepts an unrelated click
+   in the same test). Neither the attachments pipeline nor the seed script
+   is in scope for a UX-polish phase, so this is fixed nowhere in the
+   28-phase plan as written — worth its own follow-up alongside item 1.
+
+**Exit — verified**: `tsc --noEmit`, `eslint`, `prettier --check .`, and
+`npm run build` all clean. `npm test` green twice in a row: 343 tests. The
+full Playwright suite green except the one pre-existing failure named
+above (confirmed unrelated: no attachments/upload code touched this phase).
 
 ---
 
