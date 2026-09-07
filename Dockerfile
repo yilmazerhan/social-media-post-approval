@@ -19,14 +19,24 @@ FROM node:22.22.2-bookworm-slim AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-# prisma.config.ts's env("DATABASE_URL") throws as soon as the config file
-# loads if the variable is unset — before `generate` gets anywhere near
-# needing a real connection, which it never makes at all. .env is (rightly)
-# excluded from the build context (.dockerignore), so there's nothing to
-# read it from here; this placeholder only has to be present as a string,
-# never a working connection. Build-stage ENV only, not carried into the
-# runner stage below (nothing there COPYs it).
-ENV DATABASE_URL="postgresql://build:build@localhost:5432/build"
+# Two build-time-only steps below need src/server/config.ts's env schema to
+# pass validation, even though neither one talks to a real database or
+# sends real email: `prisma generate` because prisma.config.ts's own
+# env("DATABASE_URL") throws as soon as it loads if unset, and `next build`
+# (output: "standalone") because Next actually imports every route handler
+# during "Collecting page data" to read its static config, which runs
+# config.ts's module-scope validation for real. .env is (rightly) excluded
+# from the build context (.dockerignore), so there is nothing to read
+# real values from here — these placeholders only have to satisfy the
+# schema's shape, never work. None of this is carried into the runner
+# stage below (nothing there COPYs it, and the runner sets its own
+# NODE_ENV/PORT); the real values come from the container's real .env at
+# start-up, same as always.
+ENV DATABASE_URL="postgresql://build:build@localhost:5432/build" \
+    APP_URL="http://localhost:3000" \
+    SESSION_SECRET="docker-build-time-placeholder-not-a-real-secret-000" \
+    SMTP_HOST="localhost" \
+    SMTP_FROM="build@localhost"
 RUN npx prisma generate
 RUN npm run build
 
