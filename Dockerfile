@@ -2,16 +2,31 @@
 # DEPLOYMENT.md §3. Multi-stage: deps -> builder -> runner. `app` and
 # `worker` (DEPLOYMENT.md §2) both run this same image with a different
 # command.
+#
+# Node patch matters here, not just the major (22 LTS): prisma's CLI
+# pulls in @prisma/dev, which requires the ESM-only package `zeptomatch`
+# via a .cjs file. That only works because Node 22.12.0 turned on
+# require()-of-synchronous-ESM by default; on 22.11.0 (this image's
+# previous pin) `npx prisma generate` fails outright with
+# ERR_REQUIRE_ESM. Don't pin back below 22.12.0.
 
-FROM node:22.11.0-bookworm-slim AS deps
+FROM node:22.22.2-bookworm-slim AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --ignore-scripts
 
-FROM node:22.11.0-bookworm-slim AS builder
+FROM node:22.22.2-bookworm-slim AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+# prisma.config.ts's env("DATABASE_URL") throws as soon as the config file
+# loads if the variable is unset — before `generate` gets anywhere near
+# needing a real connection, which it never makes at all. .env is (rightly)
+# excluded from the build context (.dockerignore), so there's nothing to
+# read it from here; this placeholder only has to be present as a string,
+# never a working connection. Build-stage ENV only, not carried into the
+# runner stage below (nothing there COPYs it).
+ENV DATABASE_URL="postgresql://build:build@localhost:5432/build"
 RUN npx prisma generate
 RUN npm run build
 
@@ -23,7 +38,7 @@ RUN npm run build
 # tracing, which only follows the web app's own runtime imports. The `app`
 # command still runs the lighter standalone `server.js` rather than
 # `next start`.
-FROM node:22.11.0-bookworm-slim AS runner
+FROM node:22.22.2-bookworm-slim AS runner
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ffmpeg openssl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
