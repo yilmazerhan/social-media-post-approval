@@ -1,0 +1,31 @@
+# DEPLOYMENT.md §9 — non-container install (Node.js 22 LTS on the host).
+# Install: sudo cp systemd/content-approval.service /etc/systemd/system/
+#          sudo systemctl daemon-reload
+#          sudo systemctl enable --now content-approval.service
+[Unit]
+Description=Content Approval — web app
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=capp
+Group=capp
+WorkingDirectory=/opt/content-approval/app
+EnvironmentFile=/opt/content-approval/.env
+# Migrations run under Prisma's own advisory lock (DEPLOYMENT.md §8), so
+# this is safe to run on every start alongside the worker unit doing the
+# same thing. Adjust the npm/npx paths below if Node 22 isn't installed
+# from the distro's standard location (`which npm`).
+ExecStartPre=/usr/bin/npx prisma migrate deploy
+ExecStart=/usr/bin/npm run start
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/content-approval/data
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target
