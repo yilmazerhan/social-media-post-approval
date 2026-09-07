@@ -10,28 +10,40 @@
 # previous pin) `npx prisma generate` fails outright with
 # ERR_REQUIRE_ESM. Don't pin back below 22.12.0.
 
+# Several build-time-only steps below need src/server/config.ts's env
+# schema to pass validation, even though none of them talk to a real
+# database or send real email: `prisma generate` (both stages) because
+# prisma.config.ts's own env("DATABASE_URL") throws as soon as it loads if
+# unset, and `next build` (output: "standalone") because Next actually
+# imports every route handler during "Collecting page data" to read its
+# static config, which runs config.ts's module-scope validation for real.
+# .env is (rightly) excluded from the build context (.dockerignore), so
+# there is nothing to read real values from here — these placeholders only
+# have to satisfy the schema's shape, never work. None of this is carried
+# into the runner stage below (nothing there COPYs an ENV, and the runner
+# sets its own NODE_ENV/PORT); the real values come from the container's
+# real .env at start-up, same as always.
+
 FROM node:22.22.2-bookworm-slim AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci --ignore-scripts
+# prisma/ and prisma.config.ts have to be here too, and `npm ci` has to be
+# allowed to run scripts: the project's own "postinstall": "prisma
+# generate" is what triggers @prisma/engines to fetch the schema-engine
+# binary migrations need (docker-entrypoint.sh's `prisma migrate deploy`).
+# `--ignore-scripts` skips that fetch silently — `prisma generate` itself
+# never needs it (this project's runtime queries go through
+# @prisma/adapter-pg, no native query engine at all), so the gap only
+# shows up later, as a migration failure at container start-up.
+COPY prisma ./prisma
+COPY prisma.config.ts ./prisma.config.ts
+ENV DATABASE_URL="postgresql://build:build@localhost:5432/build"
+RUN npm ci
 
 FROM node:22.22.2-bookworm-slim AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-# Two build-time-only steps below need src/server/config.ts's env schema to
-# pass validation, even though neither one talks to a real database or
-# sends real email: `prisma generate` because prisma.config.ts's own
-# env("DATABASE_URL") throws as soon as it loads if unset, and `next build`
-# (output: "standalone") because Next actually imports every route handler
-# during "Collecting page data" to read its static config, which runs
-# config.ts's module-scope validation for real. .env is (rightly) excluded
-# from the build context (.dockerignore), so there is nothing to read
-# real values from here — these placeholders only have to satisfy the
-# schema's shape, never work. None of this is carried into the runner
-# stage below (nothing there COPYs it, and the runner sets its own
-# NODE_ENV/PORT); the real values come from the container's real .env at
-# start-up, same as always.
 ENV DATABASE_URL="postgresql://build:build@localhost:5432/build" \
     APP_URL="http://localhost:3000" \
     SESSION_SECRET="docker-build-time-placeholder-not-a-real-secret-000" \
